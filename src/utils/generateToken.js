@@ -10,7 +10,7 @@ const generateToken = (user) => {
 
   // Tạo token với thời gian sống là 1 giờ
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: '1h',
+    expiresIn: '1d',
   });
 
   // Tạo refresh token với thời gian sống dài hơn, ví dụ 7 ngày

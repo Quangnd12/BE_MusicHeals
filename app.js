@@ -8,6 +8,9 @@ const authRoutes = require("./src/routes/authRoutes");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./src/config/swagger");
 const userRoutes = require("./src/routes/userRoutes");
+const adminRoutes = require('./src/routes/adminRoutes');
+const artistRoutes = require("./src/routes/artistRoutes");
+const followRoutes = require('./src/routes/followsRoutes');
 const helmet = require("helmet");
 
 dotenv.config();
@@ -40,6 +43,9 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use('/api', adminRoutes);
+app.use("/api", artistRoutes);
+app.use('/api', followRoutes);
 
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {

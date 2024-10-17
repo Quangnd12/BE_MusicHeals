@@ -9,28 +9,73 @@ class UserModel {
   }
 
   /**
-   * Get all users
-   * @param {number} limit - Number of users to retrieve (optional)
-   * @param {string} startAfter - Last user ID to start after (for pagination)
-   * @returns {Promise<Array>} Array of user objects
+    * Get all users with pagination and search
+   * @param {number} page - Page number
+   * @param {number} limit - Number of users per page
+   * @param {string} searchTerm - Search term for username or email
+   * @returns {Promise<Object>} Object containing users, total pages, and total users
    */
-  async getAllUsers(limit = 50, startAfter = null) {
-    let query = this.collection.orderBy("createdAt");
 
-    if (startAfter) {
-      const startAfterDoc = await this.collection.doc(startAfter).get();
-      query = query.startAfter(startAfterDoc);
+  async getAllUsers(page = 1, limit = 5, searchTerm = '') {
+    let query = this.collection.orderBy("createdAt", "desc");
+  
+    // Nếu có searchTerm, tìm kiếm theo email hoặc username
+    if (searchTerm) {
+      const emailQuery = this.collection
+        .where("email", ">=", searchTerm)
+        .where("email", "<=", searchTerm + "\uf8ff");
+  
+      const usernameQuery = this.collection
+        .where("username", ">=", searchTerm)
+        .where("username", "<=", searchTerm + "\uf8ff");
+  
+      const [emailSnapshot, usernameSnapshot] = await Promise.all([emailQuery.get(), usernameQuery.get()]);
+  
+      // Kết hợp kết quả từ cả email và username
+      const emailUsers = emailSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const usernameUsers = usernameSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+      // Xóa các bản ghi trùng lặp (cùng ID)
+      const users = [...emailUsers, ...usernameUsers].reduce((acc, user) => {
+        if (!acc.find(u => u.id === user.id)) {
+          acc.push(user);
+        }
+        return acc;
+      }, []);
+  
+      // Áp dụng phân trang
+      const startAt = (page - 1) * limit;
+      const paginatedUsers = users.slice(startAt, startAt + limit);
+  
+      return {
+        users: paginatedUsers,
+        totalPages: Math.ceil(users.length / limit),
+        totalUsers: users.length
+      };
     }
-
-    query = query.limit(limit);
-
+  
+    // Trường hợp không có searchTerm, chỉ lấy tất cả người dùng
+    const countSnapshot = await query.get();
+    const totalUsers = countSnapshot.size;
+  
+    // Phân trang
+    const startAt = (page - 1) * limit;
+    query = query.offset(startAt).limit(limit);
+  
     const snapshot = await query.get();
-    return snapshot.docs.map((doc) => ({
+    const users = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-      password: undefined, // Exclude password from the returned data
+      password: undefined, // Loại bỏ trường password khỏi kết quả trả về
     }));
+  
+    return {
+      users,
+      totalPages: Math.ceil(totalUsers / limit),
+      totalUsers
+    };
   }
+  
 
   /**
    * Tạo người dùng mới
@@ -48,20 +93,13 @@ class UserModel {
       throw new Error("Email is already in use");
     }
 
-    // Kiểm tra độ mạnh của mật khẩu (ví dụ, ít nhất 8 ký tự, bao gồm số và chữ cái)
-    // const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/;
-    // if (!password.match(passwordRegex)) {
-    //   throw new Error(
-    //     "Password must be at least 8 characters long and include both letters and numbers."
-    //   );
-    // }
-
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await this.collection.add({
       email,
       username: null,
       password: hashedPassword,
       role,
+      birthday: null,
       avatar: null,
       playlistsId: null, // Giá trị mặc định hoặc bỏ trống
       favoritesId: null,

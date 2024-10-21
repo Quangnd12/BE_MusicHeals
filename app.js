@@ -9,10 +9,12 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./src/config/swagger");
 const userRoutes = require("./src/routes/userRoutes");
 const helmet = require("helmet");
-
+const songRoutes = require('./src/routes/songRoutes');
 dotenv.config();
 
 const app = express();
+const errorHandlerMiddleware = require('./src/middlewares/errorHandler');
+
 
 // Cấu hình bảo mật HTTP headers
 app.use(helmet());
@@ -41,6 +43,9 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 
+app.use('/api/songs', songRoutes);
+
+app.use(errorHandlerMiddleware);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

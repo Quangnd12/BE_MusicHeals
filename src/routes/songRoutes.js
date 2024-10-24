@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const SongController = require("../controllers/songController");
-const { handleUpload } = require("../middlewares/uploadMiddleware");
+const { handleUpload } = require("../middlewares/uploadAudioMiddleware");
 
 /**
  * @swagger

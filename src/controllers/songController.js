@@ -1,5 +1,5 @@
 const { db, storage } = require('../config/firebase');
-const { uploadAudio, uploadImage } = require('../middlewares/uploadMiddleware');
+const { uploadAudio, uploadImage } = require('../middlewares/uploadAudioMiddleware');
 
 class SongController {
     // Get all songs with filtering, sorting and pagination

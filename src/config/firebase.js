@@ -3,7 +3,7 @@ const serviceAccount = require('../../be-musicheals-firebase-adminsdk-5h4p2-1c18
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  storageBucket: "be-musicheals.appspot.com" // Your storage bucket
+  storageBucket: "gs://be-musicheals.appspot.com" // Your storage bucket
 });
 
 // Initialize Firestore and Storage

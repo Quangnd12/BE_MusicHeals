@@ -63,11 +63,12 @@ async function uploadImage(file) {
       reject(`Failed to upload file: ${err.message}`);
     });
 
-    blobStream.on('finish', () => {
+    blobStream.on('finish', async () => {
+      await blob.makePublic();
       // Đường dẫn công khai của file sau khi upload thành công
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/UploadImage/${blob.name}`;
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
       console.log('File uploaded successfully:', publicUrl);  // Log URL để kiểm tra
-      resolve(fileName);  // Trả về tên file đã upload thay vì URL
+      resolve(publicUrl);  // Trả về tên file đã upload thay vì URL
     });
 
     // Kết thúc stream với dữ liệu file

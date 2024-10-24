@@ -1,5 +1,5 @@
 const { db } = require("../config/firebase");
-const { uploadAudio, uploadImage } = require('../middlewares/uploadMiddleware');
+const { uploadAudio, uploadImage } = require('../middlewares/uploadAudioMiddleware');
 const { CustomAPIError, statusCodes } = require("../errors");
 
 class SongModel {

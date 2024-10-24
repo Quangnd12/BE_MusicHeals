@@ -51,7 +51,7 @@ app.use("/api", artistRoutes);
 app.use('/api', followRoutes);
 
 app.use("/api/genres", genreRoutes);
-app.use("/api/albums", albumRoutes);
+app.use("/api/", albumRoutes);
 app.use("/api/favorites", favoriteRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {

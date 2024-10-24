@@ -1,170 +1,232 @@
 const { db } = require("../config/firebase");
-const { v4: uuidv4 } = require("uuid");
+const admin = require("firebase-admin");
 
-class AlbumModel {
-  constructor() {
-    this.collection = db.collection("albums");
+class Album {
+  constructor(
+    title,
+    artistId,
+    songId,
+    describe,
+    totalTracks,
+    popularity,
+    releaseDate,
+    image
+  ) {
+    this.title = title;
+    this.artistId = artistId;
+    this.songId = songId;
+    this.describe = describe;
+    this.totalTracks = totalTracks || 0;
+    this.popularity = popularity || 0;
+    this.releaseDate = releaseDate;
+    this.image = image;
   }
 
-  /**
-   * Hàm lấy tất cả các album từ cơ sở dữ liệu
-   * @returns {Promise<Array<{
-   *   albumId: string, 
-   *   title: string, 
-   *   image: string, 
-   *   artistId: number, 
-   *   songId: number, 
-   *   describe: string, 
-   *   totalTracks: number, 
-   *   popularity: number, 
-   *   releasedate: string
-   * }>>} - Trả về danh sách album dưới dạng Promise.
-   */
-  async getAllAlbums() {
-    const snapshot = await this.collection.get();
+  static async uploadImage(file) {
+    const bucket = admin.storage().bucket();
+    const fileName = `album_images/${Date.now()}_${file.originalname}`;
+    const fileUpload = bucket.file(fileName);
 
-    return snapshot.empty
-      ? []
-      : snapshot.docs.map((doc) => {
-        const albumData = doc.data();
-        return {
-          albumId: doc.id,
-          title: albumData.title,
-          image: albumData.image,
-          artistId: albumData.artistId,
-          songId: albumData.songId,
-          describe: albumData.describe,
-          totalTracks: albumData.totalTracks,
-          popularity: albumData.popularity,
-          releasedate: albumData.releasedate,
-        };
-      });
-  }
-
-  /**
-   * Hàm lấy album theo ID từ cơ sở dữ liệu
-   * @param {string} id - ID của album cần lấy
-   * @returns {Promise<{
-   *   albumId: string, 
-   *   title: string, 
-   *   image: string, 
-   *   artistId: number, 
-   *   songId: number, 
-   *   describe: string, 
-   *   totalTracks: number, 
-   *   popularity: number, 
-   *   releasedate: string
-   * } | null>} 
-   */
-  async getAlbumById(id) {
-    const album = await this.collection.doc(id).get();
-    if (album.exists) {
-      const albumData = album.data();
-      return {
-        albumId: album.id,
-        title: albumData.title,
-        image: albumData.image,
-        artistId: albumData.artistId,
-        songId: albumData.songId,
-        describe: albumData.describe,
-        totalTracks: albumData.totalTracks,
-        popularity: albumData.popularity,
-        releasedate: albumData.releasedate,
-      };
-    }
-    return null;
-  }
-
-  /**
-   * Hàm tạo mới một album với các tham số
-   * @param {string} title - Tiêu đề album
-   * @param {string} image - Hình ảnh album
-   * @param {number} artistId - ID của nghệ sĩ thực hiện album
-   * @param {number} songId - ID của bài hát trong album
-   * @param {string} describe - Mô tả album
-   * @param {number} totalTracks - Tổng số bài hát trong album
-   * @param {number} popularity - Độ phổ biến của album
-   * @param {string} releasedate - Ngày phát hành album
-   * @returns {Promise<{
-   *   albumId: string, 
-   *   title: string, 
-   *   image: string, 
-   *   artistId: number, 
-   *   songId: number, 
-   *   describe: string, 
-   *   totalTracks: number, 
-   *   popularity: number, 
-   *   releasedate: string
-   * }>} - Album mới tạo
-   */
-  async createAlbum(title, image, artistId, songId, describe, totalTracks, popularity, releasedate) {
-    const newAlbum = await this.collection.add({
-      title,
-      image,
-      artistId,
-      songId,
-      describe,
-      totalTracks,
-      popularity,
-      releasedate,
+    const stream = fileUpload.createWriteStream({
+      metadata: {
+        contentType: file.mimetype,
+      },
     });
 
+    return new Promise((resolve, reject) => {
+      stream.on("error", (error) => reject(error));
+
+      stream.on("finish", async () => {
+        await fileUpload.makePublic();
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`;
+        resolve(publicUrl);
+      });
+
+      stream.end(file.buffer);
+    });
+  }
+
+  static async create(data) {
+    const titleLowerCase = data.title.toLowerCase();
+    const existingAlbumSnapshot = await db
+      .collection("albums")
+      .where("titleLowerCase", "==", titleLowerCase)
+      .get();
+
+      // Xử lý artistId
+  if (data.artistId) {
+    data.artistId = Array.isArray(data.artistId)
+      ? data.artistId
+      : data.artistId.split(',').map(id => id.trim());
+  }
+
+  // Xử lý songId
+  if (data.songId) {
+    data.songId = Array.isArray(data.songId)
+      ? data.songId
+      : data.songId.split(',').map(id => id.trim());
+  }
+
+  if (!existingAlbumSnapshot.empty) {
+    throw new Error("Album đã tồn tại");
+  }
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const albumData = {
+      ...data,
+      titleLowerCase,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const albumRef = await db.collection("albums").add(albumData);
+    return albumRef.id;
+  }
+
+  static async findById(albumId) {
+    if (!albumId || typeof albumId !== "string") {
+      throw new Error("Invalid albumId");
+    }
+
+    const albumRef = await db.collection("albums").doc(albumId).get();
+    if (!albumRef.exists) {
+      return null;
+    }
+
+    const albumData = albumRef.data();
+
+    const artistId = await Promise.all(
+      (albumData.artistId || []).map(async (artistId) => {
+        const artistRef = await db.collection("artists").doc(artistId).get();
+        return artistRef.exists
+          ? { id: artistRef.id, ...artistRef.data() }
+          : null;
+      })
+    );
+
+    // Lấy chi tiết songs dựa trên songId
+    const songId = await Promise.all(
+      (albumData.songId || []).map(async (songId) => {
+        const songRef = await db.collection("songs").doc(songId).get();
+        return songRef.exists ? { id: songRef.id, ...songRef.data() } : null;
+      })
+    );
+
     return {
-      albumId: newAlbum.id,
-      title,
-      image,
-      artistId,
-      songId,
-      describe,
-      totalTracks,
-      popularity,
-      releasedate,
+      id: albumRef.id,
+      ...albumData,
+      artistId: artistId.filter(Boolean),
+      songId: songId.filter(Boolean),
     };
   }
 
-  /**
-   * Hàm cập nhật thông tin của một album
-   * @param {string} id - ID của album cần cập nhật
-   * @param {object} data - Dữ liệu cập nhật, bao gồm title, image, artistId, songId, describe, genreId, totalTracks, popularity, và releasedate
-   * @returns {Promise<{
-   *   albumId: string, 
-   *   title: string, 
-   *   image: string, 
-   *   artistId: number, 
-   *   songId: number, 
-   *   describe: string, 
-   *   totalTracks: number, 
-   *   popularity: number, 
-   *   releasedate: string
-   * }>} - Album sau khi cập nhật
-   */
-  async updateAlbum(id, data) {
-    const albumRef = this.collection.doc(id);
-    const albumDoc = await albumRef.get();
-    if (!albumDoc.exists) {
-      throw new Error("Album not found.");
+  static async update(albumId, data) {
+    if (!albumId || typeof albumId !== "string") {
+      throw new Error("Invalid albumId");
     }
 
-    // Cập nhật album
-    await albumRef.update(data);
-    return { albumId: id, ...data };
+    const albumRef = db.collection("albums").doc(albumId);
+    const albumDoc = await albumRef.get();
+
+    if (!albumDoc.exists) {
+      return null;
+    }
+
+    if (data.title) {
+      data.title = data.title.toLowerCase();
+    }
+
+    // Xử lý artistId
+  if (data.artistId) {
+    data.artistId = Array.isArray(data.artistId)
+      ? data.artistId
+      : data.artistId.split(',').map(id => id.trim());
   }
 
-  /**
-   * Hàm xóa album
-   * @param {string} id - ID của album cần xóa
-   * @returns {Promise<void>} - Không trả về dữ liệu
-   */
-  async deleteAlbum(id) {
-    const albumRef = this.collection.doc(id);
-    const albumDoc = await albumRef.get();
-    if (!albumDoc.exists) {
-      throw new Error("Album not found.");
+  // Xử lý songId
+  if (data.songId) {
+    data.songId = Array.isArray(data.songId)
+      ? data.songId
+      : data.songId.split(',').map(id => id.trim());
+  }
+
+    data.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+    // Xử lý artistId, songId
+    ["artistId", "songId"].forEach((field) => {
+      if (data[field]) {
+        data[field] = data[field].filter((id) => id && typeof id === "string");
+      }
+    });
+
+    await albumRef.update(data);
+
+    return await this.findById(albumId);
+  }
+
+  static async delete(albumId) {
+    await db.collection("albums").doc(albumId).delete();
+  }
+
+  static async getAllAlbums(page = 1, limit = 5, searchTerm = "") {
+    let query = db.collection("albums").orderBy("titleLowerCase", "asc");
+
+    if (searchTerm) {
+      const searchTermLower = searchTerm.toLowerCase();
+      query = query
+        .where("titleLowerCase", ">=", searchTermLower)
+        .where("titleLowerCase", "<=", searchTermLower + "\uf8ff");
     }
 
-    // Xóa album
-    await albumRef.delete();
+    const countSnapshot = await query.get();
+    const totalAlbums = countSnapshot.size;
+    const startAt = (page - 1) * limit;
+    query = query.offset(startAt).limit(limit);
+
+    const snapshot = await query.get();
+    const albums = await Promise.all(
+      snapshot.docs.map(async (doc) => {
+        const albumData = doc.data();
+
+        albumData.artistId = await this.getArtistDetails(
+          albumData.artistId || []
+        );
+        albumData.songId = await this.getSongDetails(albumData.songId || []);
+
+        return {
+          id: doc.id,
+          ...albumData,
+        };
+      })
+    );
+
+    return {
+      albums,
+      totalPages: Math.ceil(totalAlbums / limit),
+      totalAlbums,
+    };
+  }
+
+  static async getArtistDetails(artistIds) {
+    const validArtistIds = artistIds.filter(
+      (id) => id && typeof id === "string"
+    );
+    const artistPromises = validArtistIds.map(async (artistId) => {
+      const artistDoc = await db.collection("artists").doc(artistId).get();
+      return artistDoc.exists
+        ? { id: artistDoc.id, ...artistDoc.data() }
+        : null;
+    });
+    return (await Promise.all(artistPromises)).filter(Boolean);
+  }
+
+  static async getSongDetails(songIds) {
+    const validSongIds = songIds.filter((id) => id && typeof id === "string");
+    const songPromises = validSongIds.map(async (songId) => {
+      const songDoc = await db.collection("songs").doc(songId).get();
+      return songDoc.exists ? { id: songDoc.id, ...songDoc.data() } : null;
+    });
+    return (await Promise.all(songPromises)).filter(Boolean);
   }
 }
 
-module.exports = new AlbumModel();
+module.exports = Album;

@@ -3,8 +3,10 @@ const serviceAccount = require('../../be-musicheals-firebase-adminsdk-5h4p2-1c18
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
+  storageBucket: "gs://be-musicheals.appspot.com"
 });
 
 const db = admin.firestore();
+const storage = admin.storage();
 
-module.exports = { admin, db };
+module.exports = { admin, db, storage };

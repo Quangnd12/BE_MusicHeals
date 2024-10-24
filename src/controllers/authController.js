@@ -4,6 +4,7 @@ const sendEmail = require('../utils/sendEmail'); // Import hàm gửi email
 const isCompanyEmail = require('../utils/isCompanyEmail');
 const generateToken = require('../utils/generateToken');
 const { admin, db } = require('../config/firebase');
+const jwt = require('jsonwebtoken');
 
 // Đăng ký người dùng
 const register = async (req, res) => {

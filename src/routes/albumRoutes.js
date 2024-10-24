@@ -1,173 +1,113 @@
 const express = require("express");
-const albumRoutes = require("../controllers/albumController");
-
 const router = express.Router();
+const albumController = require("../controllers/albumController");
+
+const multer = require("multer");
+
+// Thiết lập multer để upload file ảnh
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 /**
  * @swagger
- * tags:
- *   name: Albums
- *   description: API for managing albums
- */
-
-/**
- * @swagger
- * /albums:
- *   post:
- *     summary: Create a new album
- *     tags: [Albums]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               title:
- *                 type: string
- *               image:
- *                 type: string
- *               artistId:
- *                 type: number
- *               songId:
- *                 type: number
- *               describe:
- *                 type: string
- *               totalTracks:
- *                 type: integer
- *               popularity:
- *                 type: integer
- *               releaseDate:
- *                 type: string
- *     responses:
- *       201:
- *         description: Album created successfully
- *       400:
- *         description: Bad request (e.g. missing fields)
- */
-router.post("/", albumRoutes.createAlbum);
-
-/**
- * @swagger
+ * components:
+ *   schemas:
+ *     Album:
+ *       type: object
+ *       properties:
+ *         title:
+ *           type: string
+ *         artistId:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: Danh sách ID của  các nghệ sĩ
+ *         songId:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: Danh sách ID của  các bài hát
+ *         describe:
+ *           type: string
+ *         totalTracks:
+ *           type: integer
+ *         popularity:
+ *           type: integer
+ *         releaseDate:
+ *           type: string
+ *           format: date
+ *         image:
+ *           type: string
+ *           format: binary
+ *
  * /albums:
  *   get:
- *     summary: Get all albums
- *     tags: [Albums]
- *     responses:
- *       200:
- *         description: List of all albums
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   title:
- *                     type: string
- *                   id:
- *                     type: string
- *                   image:
- *                     type: string
- *                   artistId:
- *                     type: number
- *                   songId:
- *                     type: number
- *                   describe:
- *                     type: string
- *                   totalTracks:
- *                     type: integer
- *                   popularity:
- *                     type: integer
- *                   releaseDate:
- *                     type: string
- *       500:
- *         description: Internal server error
- */
-router.get("/", albumRoutes.getAllAlbums);
-
-/**
- * @swagger
- * /albums/{albumId}:
- *   get:
- *     summary: Get album by ID
+ *     summary: Lấy danh sách tất cả album
+ *     description: API này dùng để lấy danh sách tất cả album, có thể tìm kiếm và phân trang.
  *     tags: [Albums]
  *     parameters:
- *       - in: path
- *         name: albumId
- *         required: true
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Trang hiện tại (mặc định là 1)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Số lượng album trả về trên mỗi trang (mặc định là 5)
+ *       - in: query
+ *         name: searchTerm
  *         schema:
  *           type: string
- *         description: The album document ID
+ *         required: false
+ *         description: Tìm kiếm album theo tên
  *     responses:
  *       200:
- *         description: Album retrieved successfully
+ *         description: Danh sách album được trả về thành công
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 message:
- *                   type: string
- *                   example: Album retrieved successfully
- *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                       example: abc123
- *                     title:
- *                       type: string
- *                       example: Rock Classics
- *                     image:
- *                       type: string
- *                     artistId:
- *                       type: number
- *                     songId:
- *                       type: number
- *                     describe:
- *                       type: string
- *                     totalTracks:
- *                       type: integer
- *                     popularity:
- *                       type: integer
- *                     releaseDate:
- *                       type: string
- *       404:
- *         description: Album not found
+ *                 total:
+ *                   type: integer
+ *                   description: Tổng số album
+ *                 currentPage:
+ *                   type: integer
+ *                   description: Trang hiện tại
+ *                 totalPages:
+ *                   type: integer
+ *                   description: Tổng số trang
+ *                 albums:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Album'
  *       500:
- *         description: Internal server error
- */
-router.get("/:albumId", albumRoutes.getAlbumById);
-
-/**
- * @swagger
- * /albums/{albumId}:
- *   put:
- *     summary: Update an album
+ *         description: Có lỗi xảy ra trong quá trình lấy dữ liệu
+ *
+ *   post:
+ *     summary: Tạo mới album
  *     tags: [Albums]
- *     parameters:
- *       - in: path
- *         name: albumId
- *         required: true
- *         schema:
- *           type: string
- *         description: The album document ID
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
  *               title:
  *                 type: string
- *               image:
- *                 type: string
  *               artistId:
- *                 type: number
+ *                 type: array
+ *                 items:
+ *                   type: string
  *               songId:
- *                 type: number
+ *                 type: array
+ *                 items:
+ *                   type: string
  *               describe:
  *                 type: string
  *               totalTracks:
@@ -176,37 +116,100 @@ router.get("/:albumId", albumRoutes.getAlbumById);
  *                 type: integer
  *               releaseDate:
  *                 type: string
+ *               image:
+ *                 type: string
+ *                 format: binary
  *     responses:
- *       200:
- *         description: Album updated successfully
- *       404:
- *         description: Album not found
+ *       201:
+ *         description: Tạo album thành công
  *       400:
- *         description: Bad request (e.g. missing fields)
- */
-router.put("/:albumId", albumRoutes.updateAlbum);
-
-/**
- * @swagger
+ *         description: Dữ liệu không hợp lệ
+ *
  * /albums/{albumId}:
- *   delete:
- *     summary: Delete an album
+ *   get:
+ *     summary: Lấy thông tin album theo ID
  *     tags: [Albums]
  *     parameters:
- *       - in: path
- *         name: albumId
+ *       - name: albumId
+ *         in: path
  *         required: true
  *         schema:
  *           type: string
- *         description: The album document ID
  *     responses:
  *       200:
- *         description: Album deleted successfully
- *       404:
- *         description: Album not found
- *       500:
- *         description: Internal server error
+ *         description: Lấy thông tin album thành công
+ *
+ *   put:
+ *     summary: Cập nhật album
+ *     tags: [Albums]
+ *     parameters:
+ *       - name: albumId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               artistId:
+ *                 type: array
+ *                 items: 
+ *                   type: string  
+ *               songId:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               describe:
+ *                 type: string
+ *               totalTracks:
+ *                 type: integer
+ *               popularity:
+ *                 type: integer
+ *               releaseDate:
+ *                 type: string
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Cập nhật album thành công
+ *
+ *   delete:
+ *     summary: Xóa album
+ *     tags: [Albums]
+ *     parameters:
+ *       - name: albumId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Xóa album thành công
  */
-router.delete("/:albumId", albumRoutes.deleteAlbum);
+
+// Tạo mới album và upload ảnh bìa
+router.post("/albums", upload.single("image"), albumController.createAlbum);
+
+// Lấy thông tin album theo ID
+router.get("/albums/:albumId", albumController.getAlbumById);
+
+// Cập nhật thông tin album và upload ảnh bìa mới
+router.put(
+  "/albums/:albumId",
+  upload.single("image"),
+  albumController.updateAlbum
+);
+
+// Xóa album
+router.delete("/albums/:albumId", albumController.deleteAlbum);
+
+// Lấy danh sách tất cả album
+router.get("/albums", albumController.getAllAlbums);
 
 module.exports = router;

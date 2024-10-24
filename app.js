@@ -8,12 +8,12 @@ const authRoutes = require("./src/routes/authRoutes");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./src/config/swagger");
 const userRoutes = require("./src/routes/userRoutes");
-const genreRoutes = require("./src/routes/genreRoutes");
-const albumRoutes = require("./src/routes/albumRoutes");
-const favoriteRoutes = require("./src/routes/favoriteRoutes");
 const adminRoutes = require('./src/routes/adminRoutes');
 const artistRoutes = require("./src/routes/artistRoutes");
 const followRoutes = require('./src/routes/followsRoutes');
+const genreRoutes = require("./src/routes/genreRoutes");
+const albumRoutes = require("./src/routes/albumRoutes");
+const favoriteRoutes = require("./src/routes/favoriteRoutes");
 const helmet = require("helmet");
 const songRoutes = require('./src/routes/songRoutes');
 dotenv.config();
@@ -48,16 +48,13 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/genres", genreRoutes);
-app.use("/api/albums", albumRoutes);
-app.use("/api/favorites", favoriteRoutes);
 app.use('/api', adminRoutes);
 app.use("/api", artistRoutes);
 app.use('/api', followRoutes);
 
-app.use('/api/songs', songRoutes);
-
-app.use(errorHandlerMiddleware);
+app.use("/api/genres", genreRoutes);
+app.use("/api/", albumRoutes);
+app.use("/api/favorites", favoriteRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

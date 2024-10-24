@@ -1,49 +1,113 @@
 const Artist = require("../models/artistModel");
 
-// Tạo mới nghệ sĩ
 exports.createArtist = async (req, res) => {
   try {
-    const { name, bio, genre, albums, songs, followers } = req.body;
+    const { name, bio, monthly_listeners, albumId, songId, followerId } = req.body;
+
+    let avatarUrl = null;
+    if (req.file) {
+      avatarUrl = await Artist.uploadAvatar(req.file);
+    }
+
+     // Xử lý dữ liệu cho các trường mảng
+     const processedAlbumId = albumId ? (
+      Array.isArray(albumId) 
+        ? albumId 
+        : albumId.split(',').map(id => id.trim())
+    ) : [];
+
+    const processedSongId = songId ? (
+      Array.isArray(songId)
+        ? songId
+        : songId.split(',').map(id => id.trim())
+    ) : [];
+
+    const processedFollowerId = followerId ? (
+      Array.isArray(followerId)
+        ? followerId
+        : followerId.split(',').map(id => id.trim())
+    ) : [];
+
     const artistData = {
       name,
       bio,
-      genre,
-      albums: albums || [],
-      songs: songs || [],
-      followers: followers || [],
-      monthly_listeners: 0 // Khởi tạo số lượng người nghe hàng tháng = 0
+      avatar: avatarUrl,
+      albumId: processedAlbumId,
+      songId: processedSongId,
+      followerId: processedFollowerId,
+      monthly_listeners: parseInt(monthly_listeners, 10) || 0,
     };
+
     const artistId = await Artist.create(artistData);
-    res.status(201).json({ message: "Tạo nghệ sĩ thành công", artistId });
+    const createdArtist = await Artist.findById(artistId);
+
+    res.status(201).json({
+      artist: createdArtist,
+      message: "Tạo nghệ sĩ thành công",
+      artistId,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Có lỗi xảy ra", error: error.message });
+    console.error("Error creating artist:", error);
+    res.status(500).json({
+      message: "Có lỗi xảy ra khi tạo nghệ sĩ",
+      error: error.message,
+    });
   }
 };
 
-// Lấy thông tin nghệ sĩ theo ID
 exports.getArtistById = async (req, res) => {
   try {
     const { artistId } = req.params;
     const artist = await Artist.findById(artistId);
+    if (!artist) {
+      return res.status(404).json({ message: "Nghệ sĩ không tồn tại" });
+    }
     res.status(200).json(artist);
-  } catch (error) {
-    res.status(404).json({ message: "Nghệ sĩ không tồn tại", error: error.message });
-  }
-};
-
-// Cập nhật thông tin nghệ sĩ
-exports.updateArtist = async (req, res) => {
-  try {
-    const { artistId } = req.params;
-    const updateData = req.body;
-    const updatedArtist = await Artist.update(artistId, updateData);
-    res.status(200).json({ message: "Cập nhật nghệ sĩ thành công", updatedArtist });
   } catch (error) {
     res.status(500).json({ message: "Có lỗi xảy ra", error: error.message });
   }
 };
 
-// Xóa nghệ sĩ
+exports.updateArtist = async (req, res) => {
+  try {
+    const { artistId } = req.params;
+    const updateData = { ...req.body };
+
+    // Xử lý các trường dạng mảng
+    ["albumId", "songId", "followerId"].forEach((field) => {
+      if (updateData[field]) {
+        updateData[field] = Array.isArray(updateData[field])
+          ? updateData[field]
+          : updateData[field].split(',').map(id => id.trim());
+      }
+    });
+
+    // Nếu có file avatar mới, upload avatar lên Firebase Storage
+    if (req.file) {
+      const avatarUrl = await Artist.uploadAvatar(req.file);
+      updateData.avatar = avatarUrl;
+    }
+
+    updateData.updatedAt = new Date();
+
+    const updatedArtist = await Artist.update(artistId, updateData);
+    if (!updatedArtist) {
+      return res.status(404).json({ message: "Không tìm thấy nghệ sĩ" });
+    }
+
+    res.status(200).json({
+      message: "Cập nhật nghệ sĩ thành công",
+      artist: updatedArtist,
+    });
+  } catch (error) {
+    console.error("Error updating artist:", error);
+    res.status(500).json({
+      message: "Có lỗi xảy ra khi cập nhật nghệ sĩ",
+      error: error.message,
+    });
+  }
+};
+
 exports.deleteArtist = async (req, res) => {
   try {
     const { artistId } = req.params;
@@ -54,11 +118,22 @@ exports.deleteArtist = async (req, res) => {
   }
 };
 
-// Lấy danh sách tất cả nghệ sĩ
 exports.getAllArtists = async (req, res) => {
   try {
-    const artists = await Artist.getAll();
-    res.status(200).json(artists);
+    const { page = 1, limit = 5, searchTerm = "" } = req.query;
+
+    const result = await Artist.getAllArtists(
+      parseInt(page),
+      parseInt(limit),
+      searchTerm
+    );
+
+    res.status(200).json({
+      total: result.totalArtists,
+      currentPage: parseInt(page),
+      totalPages: result.totalPages,
+      artists: result.artists,
+    });
   } catch (error) {
     res.status(500).json({ message: "Có lỗi xảy ra", error: error.message });
   }

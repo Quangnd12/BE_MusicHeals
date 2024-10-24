@@ -1,4 +1,7 @@
 const jwt = require('jsonwebtoken');
+const admin = require('firebase-admin'); // giả sử bạn dùng Firebase
+const { generateToken } = require('../utils/generateToken'); // hàm tạo token
+const db = admin.firestore();
 
 const authMiddleware = async (req, res, next) => {
   const accessToken = req.headers.authorization?.split(' ')[1];
@@ -58,4 +61,5 @@ const authMiddleware = async (req, res, next) => {
     }
   }
 };
+
 module.exports = authMiddleware;

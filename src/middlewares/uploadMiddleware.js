@@ -1,159 +1,81 @@
-const multer = require('multer');
 const { bucket } = require('../config/firebase');
-const path = require('path');
-const mm = require('music-metadata');
+const sharp = require('sharp');  // Thư viện nén ảnh
 
-// Cấu hình multer
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 20 * 1024 * 1024, // Giới hạn 20MB
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.fieldname === 'file_song') {
-      if (!file.originalname.match(/\.(mp3|wav|ogg)$/)) {
-        return cb(new Error('Chỉ cho phép file âm thanh!'), false);
-      }
-    } else if (file.fieldname === 'image') {
-      if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
-        return cb(new Error('Chỉ cho phép file hình ảnh!'), false);
-      }
-    }
-    cb(null, true);
+async function uploadImage(file) {
+  console.log('Received file:', file);  // Log chi tiết về file để kiểm tra
+
+  // Kiểm tra sự tồn tại của file và thông tin cần thiết
+  if (!file) {
+    throw new Error('File is missing');
   }
-});
-
-// Middleware để xử lý tải lên nhiều file
-const handleUpload = upload.fields([
-  { name: 'file_song', maxCount: 1 },
-  { name: 'image', maxCount: 1 }
-]);
-
-// Tạo tên file duy nhất
-const generateUniqueFileName = (originalname) => {
-  const timestamp = Date.now();
-  const extension = path.extname(originalname);
-  const basename = path.basename(originalname, extension);
-  return `${basename}_${timestamp}${extension}`;
-};
-
-// Trích xuất metadata từ file âm thanh
-const extractAudioMetadata = async (file) => {
-  try {
-    const metadata = await mm.parseBuffer(file.buffer, { mimeType: file.mimetype });
-    return {
-      duration: metadata.format.duration || 0,
-      artist: metadata.common.artist || 'Unknown Artist',
-      title: metadata.common.title || 'Unknown Title',
-    };
-  } catch (error) {
-    console.error('Error extracting audio metadata:', error);
-    return { duration: 0, artist: 'Unknown Artist', title: 'Unknown Title' };
+  if (!file.originalname) {
+    throw new Error('File name is missing');
   }
-};
-
-// Tải file lên Firebase Storage
-const uploadToFirebase = async (file, folder) => {
-  try {
-    const uniqueFileName = generateUniqueFileName(file.originalname);
-    const fileName = `${folder}/${uniqueFileName}`;
-    const fileUpload = bucket.file(fileName);
-
-    const blobStream = fileUpload.createWriteStream({
-      metadata: {
-        contentType: file.mimetype,
-        metadata: {
-          originalname: file.originalname,
-        },
-      },
-      resumable: false,
-    });
-
-    return new Promise((resolve, reject) => {
-      blobStream.on('error', (error) => {
-        console.error('Upload error:', error);
-        reject(error);
-      });
-
-      blobStream.on('finish', async () => {
-        try {
-          await fileUpload.makePublic();
-          const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
-          resolve({
-            url: publicUrl,
-            path: fileName,
-          });
-        } catch (error) {
-          console.error('Error making file public:', error);
-          reject(error);
-        }
-      });
-
-      blobStream.end(file.buffer);
-    });
-  } catch (error) {
-    console.error('Firebase upload error:', error);
-    throw error;
+  if (!file.buffer) {
+    throw new Error('File data is missing');
   }
-};
 
-// Hàm xử lý tải lên âm thanh
-const uploadAudio = async (file) => {
-  try {
-    const metadata = await extractAudioMetadata(file);
-    const uploadResult = await uploadToFirebase(file, 'audio');
+  // Log thêm thông tin về file
+  console.log(`File name: ${file.originalname}`);
+  console.log(`File type: ${file.mimetype}`);
+  console.log(`File size: ${file.size} bytes`);
 
-    return {
-      ...uploadResult,
-      duration: metadata.duration,
-      metadata: {
-        artist: metadata.artist,
-        title: metadata.title
-      }
-    };
-  } catch (error) {
-    console.error('Error in uploadAudio:', error);
-    throw error;
+  // Kiểm tra định dạng file
+  const allowedFormats = ['image/png', 'image/jpeg', 'image/jpg'];
+  if (!allowedFormats.includes(file.mimetype)) {
+    throw new Error('Invalid file format. Only PNG, JPG, JPEG are allowed.');
   }
-};
 
-// Hàm tải hình ảnh lên
-const uploadImage = async (file) => uploadToFirebase(file, 'images');
+  // Kiểm tra kích thước file (ví dụ: không vượt quá 5MB)
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  if (file.size > maxSize) {
+    throw new Error('File is too large. Maximum size is 5MB.');
+  }
 
-// Hàm xử lý tải lên file và trả về kết quả
-const handleUploadAndUploadFiles = async (req, res) => {
-  handleUpload(req, res, async (err) => {
-    if (err) {
-      return res.status(400).send({ error: err.message });
-    }
+  // Tạo tên file duy nhất để lưu trên Firebase Storage
+  const fileName = `${file.originalname}`;
 
+  // Nén ảnh nếu cần
+  let fileBuffer = file.buffer;
+  if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') {
     try {
-      const results = {};
-
-      if (req.files['file_song']) {
-        const audioFile = req.files['file_song'][0];
-        console.log('Uploading audio file:', audioFile.originalname);
-        results.audio = await uploadAudio(audioFile);
-
-        req.body.duration = results.audio.duration;
-      }
-
-      if (req.files['image']) {
-        const imageFile = req.files['image'][0];
-        results.image = await uploadImage(imageFile);
-      }
-
-      res.status(200).json(results);
-    } catch (uploadError) {
-      console.error('Upload error:', uploadError);
-      res.status(500).send({ error: 'Error uploading files', details: uploadError.message });
+      // Dùng sharp để nén ảnh và chuyển thành buffer
+      fileBuffer = await sharp(file.buffer)
+        .resize({ width: 800, height: 800, fit: 'inside' })  // Resize nếu cần thiết
+        .toBuffer();
+      console.log('Image compressed successfully');
+    } catch (error) {
+      throw new Error('Error compressing the image: ' + error.message);
     }
+  }
+
+  // Upload file lên Firebase Storage
+  return new Promise((resolve, reject) => {
+    const blob = bucket.file(`UploadImage/${fileName}`);  // Tạo blob với tên file
+    const blobStream = blob.createWriteStream({
+      metadata: {
+        contentType: file.mimetype,  // Thiết lập metadata cho file
+      },
+    });
+
+    blobStream.on('error', (err) => {
+      console.error('Error uploading file:', err);  // Log lỗi chi tiết
+      reject(`Failed to upload file: ${err.message}`);
+    });
+
+    blobStream.on('finish', async () => {
+      await blob.makePublic();
+      // Đường dẫn công khai của file sau khi upload thành công
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+      console.log('File uploaded successfully:', publicUrl);  // Log URL để kiểm tra
+      resolve(publicUrl);  // Trả về tên file đã upload thay vì URL
+    });
+
+    // Kết thúc stream với dữ liệu file
+    blobStream.end(fileBuffer);
   });
-};
+}
 
 module.exports = {
-  handleUpload,
-  uploadAudio,
   uploadImage,
-  handleUploadAndUploadFiles
 };

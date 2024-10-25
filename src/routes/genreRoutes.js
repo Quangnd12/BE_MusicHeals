@@ -1,5 +1,8 @@
 const express = require("express");
 const genreRoutes = require("../controllers/genreController");
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
+const ImageUrl = upload.single('image');  // Multer middleware để upload hình ảnh
 
 const router = express.Router();
 
@@ -19,7 +22,7 @@ const router = express.Router();
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
@@ -29,49 +32,50 @@ const router = express.Router();
  *                 type: string
  *               image:
  *                 type: string
- *               subgenres:       # Thêm subgenres vào
+ *                 format: binary  # Đây là file ảnh, đúng rồi
+ *               subgenres:
  *                 type: array
  *                 items:
- *                   type: string
+ *                   type: string  # Các subgenre có thể là chuỗi (string) hoặc object tùy theo yêu cầu
  *     responses:
  *       201:
  *         description: Genre created successfully
  *       400:
  *         description: Bad request (e.g. missing fields)
  */
-router.post("/", genreRoutes.createGenre);
+router.post("/", ImageUrl, genreRoutes.createGenre);  // Xử lý upload ảnh ở đây
 
 /**
- * @swagger
- * /genres:
- *   get:
- *     summary: Get all genres
- *     tags: [Genres]
- *     responses:
- *       200:
- *         description: List of all genres
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   name:
- *                     type: string
- *                   id:
- *                     type: string
- *                   description:
- *                     type: string
- *                   image:
- *                     type: string
- *                   subgenres:    
- *                     type: array
- *                     items:
- *                       type: string
- *       500:
- *         description: Internal server error
- */
+* @swagger
+* /genres:
+*   get:
+*     summary: Get all genres
+*     tags: [Genres]
+*     responses:
+*       200:
+*         description: List of all genres
+*         content:
+*           application/json:
+*             schema:
+*               type: array
+*               items:
+*                 type: object
+*                 properties:
+*                   name:
+*                     type: string
+*                   id:
+*                     type: string
+*                   description:
+*                     type: string
+*                   image:
+*                     type: string
+*                   subgenres:    
+*                     type: array
+*                     items:
+*                       type: string
+*       500:
+*         description: Internal server error
+*/
 router.get("/", genreRoutes.getAllGenres);
 
 /**
@@ -112,7 +116,7 @@ router.get("/", genreRoutes.getAllGenres);
  *                     image:
  *                       type: string
  *                       example: Rock music genre
- *                     subgenres:      # Thêm subgenres vào trong response
+ *                     subgenres:  # Subgenres là mảng các chuỗi hoặc object nếu có thêm thông tin
  *                       type: array
  *                       items:
  *                         type: string
@@ -139,20 +143,25 @@ router.get("/:genreId", genreRoutes.getGenreById);
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
  *               name:
  *                 type: string
+ *                 description: The name of the genre
  *               description:
  *                 type: string
+ *                 description: A description of the genre
  *               image:
  *                 type: string
- *               subgenres:      
+ *                 format: binary
+ *                 description: Image file for the genre (optional)
+ *               subgenres:
  *                 type: array
  *                 items:
  *                   type: string
+ *                 description: A list of subgenres related to the genre
  *     responses:
  *       200:
  *         description: Genre updated successfully
@@ -161,7 +170,8 @@ router.get("/:genreId", genreRoutes.getGenreById);
  *       400:
  *         description: Bad request (e.g. missing fields)
  */
-router.put("/:genreId", genreRoutes.updateGenre);
+ router.put("/:genreId", ImageUrl, genreRoutes.updateGenre);
+
 
 /**
  * @swagger
@@ -185,5 +195,46 @@ router.put("/:genreId", genreRoutes.updateGenre);
  *         description: Internal server error
  */
 router.delete("/:genreId", genreRoutes.deleteGenre);
+/**
+ * @swagger
+ * /genres/multiple:
+ *   delete:
+ *     summary: Delete multiple genres by their IDs
+ *     tags: [Genres]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               genreIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of genre IDs to delete
+ *     responses:
+ *       200:
+ *         description: Multiple genres deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 deletedCount:
+ *                   type: integer
+ *       400:
+ *         description: Bad request (e.g. missing or invalid genreIds)
+ *       404:
+ *         description: No genres found with the given IDs
+ *       500:
+ *         description: Internal server error
+ */
+router.delete("/multiple", genreRoutes.deleteGenreAll);
+
+
 
 module.exports = router;
+

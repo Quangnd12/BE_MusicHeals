@@ -1,156 +1,194 @@
 const { db } = require("../config/firebase");
-const { uploadAudio, uploadImage } = require('../middlewares/uploadAudioMiddleware');
-const { CustomAPIError, statusCodes } = require("../errors");
+const { uploadAudio } = require('../middlewares/uploadAudio');
+const { uploadImage } = require("../middlewares/uploadMiddleware");
 
 class SongModel {
   constructor() {
     this.collection = db.collection("songs");
   }
 
-  async getAllSongs(limit = 50, startAfter = null, sortBy = 'title', filterBy = {}) {
-    try {
-      let query = this.collection.orderBy(sortBy);
+  /**
+   * Hàm lấy tất cả các bài hát từ cơ sở dữ liệu
+   * @returns {Promise<Array<{songId: string, title: string, lyrics: string, duration: number, releasedate: string, is_explicit: boolean, file_song: string|null, image: string|null, playcountId: number, createdAt: object, updatedAt: object, artistIds: string[], albumIds: string[], genreIds: string[]}>>}
+   */
+  async getAllSongs() {
+    const snapshot = await this.collection.get();
 
-      if (startAfter) {
-        const startAfterDoc = await this.collection.doc(startAfter).get();
-        if (startAfterDoc.exists) {
-          query = query.startAfter(startAfterDoc);
-        }
-      }
-
-      Object.entries(filterBy).forEach(([key, value]) => {
-        if (Array.isArray(value)) {
-          query = query.where(key, 'array-contains-any', value);
-        } else {
-          query = query.where(key, '==', value);
-        }
+    return snapshot.empty
+      ? []
+      : snapshot.docs.map((doc) => {
+        const songData = doc.data();
+        return {
+          songId: doc.id,
+          title: songData.title,
+          lyrics: songData.lyrics,
+          duration: songData.duration,
+          releasedate: songData.releasedate,
+          is_explicit: songData.is_explicit,
+          file_song: songData.file_song,
+          image: songData.image,
+          playcountId: songData.playcountId,
+          createdAt: songData.createdAt,
+          updatedAt: songData.updatedAt,
+          artistIds: songData.artistIds || [],
+          albumIds: songData.albumIds || [],
+          genreIds: songData.genreIds || [],
+        };
       });
-
-      const snapshot = await query.limit(limit).get();
-
-      return snapshot.docs.map(doc => ({
-        songId: doc.id,
-        ...doc.data()
-      }));
-    } catch (error) {
-      throw new CustomAPIError("Failed to get songs: " + error.message, statusCodes.INTERNAL_SERVER_ERROR);
-    }
   }
 
-  async getSongById(songId) {
-    try {
-      const doc = await this.collection.doc(songId).get();
-      if (!doc.exists) {
-        throw new CustomAPIError("Song not found", statusCodes.NOT_FOUND);
-      }
-      return { songId: doc.id, ...doc.data() };
-    } catch (error) {
-      if (error instanceof CustomAPIError) {
-        throw error;
-      }
-      throw new CustomAPIError("Failed to get song: " + error.message, statusCodes.INTERNAL_SERVER_ERROR);
+  /**
+   * Hàm lấy bài hát theo ID từ cơ sở dữ liệu
+   * @param {string} id - ID của bài hát cần lấy
+   * @returns {Promise<{songId: string, title: string, lyrics: string, duration: number, releasedate: string, is_explicit: boolean, file_song: string|null, image: string|null, playcountId: number, createdAt: object, updatedAt: object, artistIds: string[], albumIds: string[], genreIds: string[]} | null>} - Bài hát tìm thấy hoặc null nếu không tồn tại
+   */
+  async getSongById(id) {
+    const song = await this.collection.doc(id).get();
+    if (song.exists) {
+      const songData = song.data();
+      return {
+        songId: song.id,
+        title: songData.title,
+        lyrics: songData.lyrics,
+        duration: songData.duration,
+        releasedate: songData.releasedate,
+        is_explicit: songData.is_explicit,
+        file_song: songData.file_song,
+        image: songData.image,
+        playcountId: songData.playcountId,
+        createdAt: songData.createdAt,
+        updatedAt: songData.updatedAt,
+        artistIds: songData.artistIds || [],
+        albumIds: songData.albumIds || [],
+        genreIds: songData.genreIds || [],
+      };
     }
+    return null;
   }
 
-  async createSong(songData) {
+  /**
+   * Hàm tạo mới một bài hát
+   * @param {string} title - Tên bài hát
+   * @param {string} lyrics - Lời bài hát
+   * @param {number} duration - Thời gian bài hát
+   * @param {string} releasedate - Ngày phát hành
+   * @param {boolean} is_explicit - Có chứa nội dung nhạy cảm hay không
+   * @param {string|null} file_song - Đường dẫn đến file âm thanh
+   * @param {string|null} image - Đường dẫn đến hình ảnh
+   * @param {Array<string>} artistIds - Danh sách ID nghệ sĩ
+   * @param {Array<string>} albumIds - Danh sách ID album
+   * @param {Array<string>} genreIds - Danh sách ID thể loại
+   * @returns {Promise<{songId: string, title: string, lyrics: string, duration: number, releasedate: string, is_explicit: boolean, file_song: string|null, image: string|null, playcountId: number, createdAt: object, updatedAt: object, artistIds: string[], albumIds: string[], genreIds: string[]}>} - Bài hát mới tạo
+   */
+   async createSong(title, lyrics, duration, releasedate, is_explicit, file_song, image, artistIds = [], albumIds = [], genreIds = []) {
     try {
-      const { image, file_song, artistIds = [], albumIds = [], genreIds = [], ...restData } = songData;
-
-      if (!file_song) {
-        throw new CustomAPIError("Audio file is required", statusCodes.BAD_REQUEST);
+      const existing = await this.collection.where('title', '==', title).get();
+      if (!existing.empty) {
+        throw new Error("song name already exists.");
       }
 
-      let imageUrl = null;
-      let audioUrl = null;
-
-      try {
-        if (image) {
-          imageUrl = await uploadImage(image);
-        }
-        audioUrl = await uploadAudio(file_song);
-      } catch (uploadError) {
-        throw new CustomAPIError("Failed to upload files: " + uploadError.message, statusCodes.INTERNAL_SERVER_ERROR);
-      }
-
-      const newSongRef = await this.collection.add({
-        ...restData,
-        artistIds: Array.isArray(artistIds) ? artistIds : [], // Ensure artistIds is an array
-        albumIds: Array.isArray(albumIds) ? albumIds : [], // Ensure albumIds is an array
-        genreIds: Array.isArray(genreIds) ? genreIds : [], // Ensure genreIds is an array
-        image: imageUrl,
-        file_song: audioUrl,
+      const uploadedImage = await uploadImage(image);
+      const uploadedFileSong = await uploadAudio(file_song);
+      
+      const createdAt = new Date();
+      const newSong = await this.collection.add({
+        title,
+        lyrics,
+        duration,
+        releasedate,
+        is_explicit,
+        file_song: uploadedFileSong,
+        image: uploadedImage,
         playcountId: 0,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        artistIds,
+        albumIds,
+        genreIds,
+        createdAt,
+        updatedAt: createdAt,
       });
-
-      const newSong = await newSongRef.get();
-      return { songId: newSong.id, ...newSong.data() };
+  
+      return {
+        songId: newSong.id,
+        title,
+        lyrics,
+        duration,
+        releasedate,
+        is_explicit,
+        file_song: uploadedFileSong,
+        image: uploadedImage,
+        playcountId: 0,
+        createdAt,
+        updatedAt: createdAt,
+        artistIds,
+        albumIds,
+        genreIds,
+      };
     } catch (error) {
-      if (error instanceof CustomAPIError) {
-        throw error;
-      }
-      throw new CustomAPIError("Failed to create song: " + error.message, statusCodes.INTERNAL_SERVER_ERROR);
+      console.error("Error creating song:", error);
+      throw new Error("Failed to create song");
     }
   }
+  
 
-  async updateSong(songId, updateData) {
-    try {
-      const songRef = this.collection.doc(songId);
-      const song = await songRef.get();
+  /**
+   * Hàm cập nhật bài hát theo ID
+   * @param {string} id - ID của bài hát cần cập nhật
+   * @param {Object} updates - Các trường cần cập nhật
+   * @returns {Promise<{songId: string, title: string, lyrics: string, duration: number, releasedate: string, is_explicit: boolean, file_song: string|null, image: string|null, playcountId: number, createdAt: object, updatedAt: object, artistIds: string[], albumIds: string[], genreIds: string[]}>} - Bài hát đã được cập nhật
+   */
+  async updateSong(id, updates) {
+    const songRef = this.collection.doc(id);
+    const song = await songRef.get();
 
-      if (!song.exists) {
-        throw new CustomAPIError("Song not found", statusCodes.NOT_FOUND);
-      }
-
-      const { image, file_song, artistIds = [], albumIds = [], genreIds = [], ...restData } = updateData;
-
-      try {
-        if (image) {
-          restData.image = await uploadImage(image);
-        }
-        if (file_song) {
-          restData.file_song = await uploadAudio(file_song);
-        }
-      } catch (uploadError) {
-        throw new CustomAPIError("Failed to upload files: " + uploadError.message, statusCodes.INTERNAL_SERVER_ERROR);
-      }
-
-      restData.artistIds = Array.isArray(artistIds) ? artistIds : []; // Ensure artistIds is an array
-      restData.albumIds = Array.isArray(albumIds) ? albumIds : []; // Ensure albumIds is an array
-      restData.genreIds = Array.isArray(genreIds) ? genreIds : []; // Ensure genreIds is an array
-
-      await songRef.update({
-        ...restData,
-        updatedAt: new Date()
-      });
-
-      return this.getSongById(songId);
-    } catch (error) {
-      if (error instanceof CustomAPIError) {
-        throw error;
-      }
-      throw new CustomAPIError("Failed to update song: " + error.message, statusCodes.INTERNAL_SERVER_ERROR);
+    if (!song.exists) {
+      throw new Error("Song not found");
     }
+
+    // Cập nhật các thông tin mới cho bài hát
+    await songRef.update({
+      ...updates,
+      updatedAt: new Date(),
+    });
+
+    const updatedSongData = {
+      songId: song.id,
+      title: updates.title || song.data().title,
+      lyrics: updates.lyrics || song.data().lyrics,
+      duration: updates.duration || song.data().duration,
+      releasedate: updates.releasedate || song.data().releasedate,
+      is_explicit: updates.is_explicit || song.data().is_explicit,
+      file_song: updates.file_song || song.data().file_song,
+      image: updates.image || song.data().image,
+      playcountId: song.data().playcountId,
+      createdAt: song.data().createdAt,
+      updatedAt: { _seconds: Math.floor(Date.now() / 1000), _nanoseconds: 0 },
+      artistIds: updates.artistIds || song.data().artistIds || [],
+      albumIds: updates.albumIds || song.data().albumIds || [],
+      genreIds: updates.genreIds || song.data().genreIds || [],
+    };
+
+    return updatedSongData;
   }
 
-  async deleteSong(songId) {
-    try {
-      const songRef = this.collection.doc(songId);
-      const song = await songRef.get();
+  /**
+ * Hàm xóa bài hát theo ID
+ * @param {string} id - ID của bài hát cần xóa
+ * @returns {Promise<string>} - Thông báo xác nhận đã xóa bài hát
+ */
+async deleteSong(id) {
+  const songRef = this.collection.doc(id);
+  const song = await songRef.get();
 
-      if (!song.exists) {
-        throw new CustomAPIError("Song not found", statusCodes.NOT_FOUND);
-      }
-
-      await songRef.delete();
-    } catch (error) {
-      if (error instanceof CustomAPIError) {
-        throw error;
-      }
-      throw new CustomAPIError("Failed to delete song: " + error.message, statusCodes.INTERNAL_SERVER_ERROR);
-    }
+  if (!song.exists) {
+    throw new Error("Song not found");
   }
+
+  // Xóa bài hát
+  await songRef.delete();
+  
+  return `Song with ID ${id} has been deleted successfully.`;
 }
 
-module.exports = new SongModel();
+}
+
+module.exports =new SongModel();

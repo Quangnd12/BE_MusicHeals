@@ -15,7 +15,6 @@ const genreRoutes = require("./src/routes/genreRoutes");
 const albumRoutes = require("./src/routes/albumRoutes");
 const favoriteRoutes = require("./src/routes/favoriteRoutes");
 const helmet = require("helmet");
-const songRoutes = require('./src/routes/songRoutes');
 dotenv.config();
 
 const app = express();

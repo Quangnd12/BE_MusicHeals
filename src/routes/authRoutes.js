@@ -14,6 +14,66 @@ const loginRateLimiter = rateLimit({
   message: "Quá nhiều lần đăng nhập. Vui lòng thử lại sau 15 phút.",
 });
 
+// Đăng ký người dùng với kiểm tra dữ liệu đầu vào
+router.post(
+  "/register",
+  [
+    check("email").isEmail().withMessage("Email không hợp lệ."),
+    check("password")
+      .isLength({ min: 8 })
+      .withMessage("Mật khẩu phải có ít nhất 8 ký tự."),
+  ],
+  async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.log(errors.array()); // Thêm log để kiểm tra lỗi từ validator
+      return res.status(400).json({ errors: errors.array() });
+    }
+    await authController.register(req, res, next);
+  }
+);
+
+// Đăng nhập người dùng với rate limit và kiểm tra dữ liệu đầu vào
+router.post(
+  "/login",
+  loginRateLimiter,
+  [
+    check("email").isEmail().withMessage("Email không hợp lệ."),
+    check("password").exists().withMessage("Mật khẩu không được để trống."),
+  ],
+  async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    await authController.login(req, res, next);
+  }
+);
+
+// Đăng xuất người dùng
+router.post("/logout", authController.logout);
+
+// Route chỉ dành cho Admin
+router.get("/admin", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
+  res.json({ message: "Welcome Admin!" });
+});
+
+// Lấy thông tin người dùng theo ID
+router.get("/users/:userId", userController.getUserById);
+
+router.post('/googleSignIn', authController.googleSignIn);
+
+// Làm mới access token
+router.post("/refresh-token", authController.refreshToken);
+
+// Yêu cầu liên kết đặt lại mật khẩu
+router.post("/forgotPassword", authController.forgotPassword);
+
+// Đặt lại mật khẩu của người dùng
+router.patch("/resetPassword/:token", authController.resetPassword);
+
+/* ============================ SWAGGER DOCS ============================ */
+
 /**
  * @swagger
  * tags:
@@ -56,24 +116,6 @@ const loginRateLimiter = rateLimit({
  *       500:
  *         description: Lỗi server
  */
-// Đăng ký người dùng với kiểm tra dữ liệu đầu vào
-router.post(
-  "/register",
-  [
-    check("email").isEmail().withMessage("Email không hợp lệ."),
-    check("password")
-      .isLength({ min: 8 })
-      .withMessage("Mật khẩu phải có ít nhất 8 ký tự."),
-  ],
-  async (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      console.log(errors.array()); // Thêm log để kiểm tra lỗi từ validator
-      return res.status(400).json({ errors: errors.array() });
-    }
-    await authController.register(req, res, next);
-  }
-);
 
 /**
  * @swagger
@@ -106,22 +148,6 @@ router.post(
  *       500:
  *         description: Lỗi server
  */
-// Đăng nhập người dùng với rate limit và kiểm tra dữ liệu đầu vào
-router.post(
-  "/login",
-  loginRateLimiter,
-  [
-    check("email").isEmail().withMessage("Email không hợp lệ."),
-    check("password").exists().withMessage("Mật khẩu không được để trống."),
-  ],
-  async (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    await authController.login(req, res, next);
-  }
-);
 
 /**
  * @swagger
@@ -147,8 +173,6 @@ router.post(
  *       500:
  *         description: Lỗi server
  */
-// Đăng xuất người dùng
-router.post("/logout", authController.logout);
 
 /**
  * @swagger
@@ -174,37 +198,6 @@ router.post("/logout", authController.logout);
  *       401:
  *         description: Người dùng chưa đăng nhập
  */
-// Route chỉ dành cho Admin
-router.get("/admin", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
-  res.json({ message: "Welcome Admin!" });
-});
-
-/**
- * @swagger
- * /auth/dashboard:
- *   get:
- *     summary: Truy cập trang tổng quan người dùng (user và admin)
- *     tags: [Auth]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Truy cập thành công
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Welcome user/admin"
- *       401:
- *         description: Người dùng chưa đăng nhập
- */
-// Route dành cho cả user và admin
-router.get("/dashboard", authMiddleware, (req, res) => {
-  res.json({ message: `Welcome ${req.user.role}` });
-});
 
 /**
  * @swagger
@@ -233,10 +226,6 @@ router.get("/dashboard", authMiddleware, (req, res) => {
  *       500:
  *         description: Lỗi server
  */
-// Lấy thông tin người dùng theo ID
-router.get("/users/:userId", userController.getUserById);
-
-router.post('/googleSignIn', authController.googleSignIn);
 
 /**
  * @swagger
@@ -257,7 +246,6 @@ router.post('/googleSignIn', authController.googleSignIn);
  *       401:
  *         description: Refresh token không hợp lệ hoặc hết hạn
  */
-router.post("/refresh-token", authController.refreshToken);
 
 /**
  * @swagger
@@ -303,82 +291,39 @@ router.post("/refresh-token", authController.refreshToken);
  *                   example: No user found with that email address.
  *       500:
  *         description: Internal server error.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: An error occurred while sending the password reset link.
  */
-
-router.post("/forgotPassword", authController.forgotPassword);
 
 /**
  * @swagger
  * /auth/resetPassword/{token}:
  *   patch:
  *     summary: Đặt lại mật khẩu của người dùng
- *     description: Đặt lại mật khẩu của người dùng bằng mã thông báo được gửi đến email của họ.
+ *     description: Đặt lại mật khẩu người dùng thông qua liên kết được gửi qua email.
  *     tags: [Auth]
  *     parameters:
  *       - in: path
  *         name: token
- *         required: true
- *         description: The password reset token.
  *         schema:
  *           type: string
+ *         required: true
+ *         description: Token để xác thực yêu cầu đặt lại mật khẩu.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - password
- *               - confirmPassword
  *             properties:
- *               password:
+ *               newPassword:
  *                 type: string
- *                 description: The new password for the user.
- *                 example: newpassword123
- *               confirmPassword:
- *                 type: string
- *                 description: Must match the new password.
- *                 example: newpassword123
+ *                 example: "newpassword123"
  *     responses:
  *       200:
- *         description: Password reset successfully.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Password reset successful.
+ *         description: Mật khẩu được đặt lại thành công
  *       400:
- *         description: Bad request (invalid token or password mismatch).
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Token is invalid or passwords do not match.
+ *         description: Yêu cầu không hợp lệ (token hết hạn hoặc không hợp lệ)
  *       500:
- *         description: Internal server error.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: An error occurred while resetting the password.
+ *         description: Lỗi server
  */
-router.patch("/resetPassword/:token", authController.resetPassword);
 
 module.exports = router;

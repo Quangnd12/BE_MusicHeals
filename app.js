@@ -15,10 +15,12 @@ const genreRoutes = require("./src/routes/genreRoutes");
 const albumRoutes = require("./src/routes/albumRoutes");
 const favoriteRoutes = require("./src/routes/favoriteRoutes");
 const helmet = require("helmet");
-
+const songRoutes = require('./src/routes/songRoutes');
 dotenv.config();
 
 const app = express();
+const errorHandlerMiddleware = require('./src/middlewares/errorHandler');
+
 
 // Cấu hình bảo mật HTTP headers
 app.use(helmet());
@@ -53,6 +55,7 @@ app.use('/api', followRoutes);
 app.use("/api/genres", genreRoutes);
 app.use("/api/", albumRoutes);
 app.use("/api/favorites", favoriteRoutes);
+app.use("/api/songs", songRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

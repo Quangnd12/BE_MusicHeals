@@ -1,5 +1,6 @@
 const GenreModel = require("../models/genreModel");
 
+
 const getAllGenres = async (req, res) => {
   try {
     const genres = await GenreModel.getAllGenres();
@@ -33,20 +34,11 @@ const getGenreById = async (req, res) => {
 const updateGenre = async (req, res) => {
   try {
     const { genreId } = req.params;
-    const { name, description,image, subgenres } = req.body;
+    const { name, description, subgenres } = req.body;
+    const image=req.file;
+    let subgenresArray = Array.isArray(subgenres) ? subgenres : (typeof subgenres === 'string' ? subgenres.split(',') : []);
 
-    // Kiểm tra các trường bắt buộc
-    if (!name || !description || !image) {
-      return res.status(400).json({ message: "Name and description are required" });
-    }
-
-    // Cập nhật genre với subgenres (nếu có)
-    const updatedGenre = await GenreModel.updateGenre(genreId, {
-      name,
-      description,
-      image,
-      subgenres: subgenres || []  // Nếu không có subgenres thì mặc định là mảng rỗng
-    });
+    const updatedGenre = await GenreModel.updateGenre(genreId, name, description, image, subgenresArray);
 
     res.json({
       message: "Genre updated successfully",
@@ -58,8 +50,9 @@ const updateGenre = async (req, res) => {
 };
 
 const createGenre = async (req, res) => {
-  const { name, description,image, subgenres } = req.body;
-
+  const { name, description, subgenres } = req.body;
+  const image = req.file;
+  let subgenresArray = Array.isArray(subgenres) ? subgenres : subgenres.split(',');
   // Kiểm tra các trường bắt buộc
   if (!name || !description || !image) {
     return res.status(400).json({ message: "Name and description are required" });
@@ -67,8 +60,8 @@ const createGenre = async (req, res) => {
 
   try {
     // Chỉ cần truyền subgenres vào model mà không cần xử lý thêm
-    const newGenre = await GenreModel.createGenre(name, description,image, subgenres || []);
-    
+    const newGenre = await GenreModel.createGenre(name, description, image, subgenresArray || []);
+
     res.status(201).json({
       message: "Genre created successfully",
       data: newGenre,
@@ -77,6 +70,8 @@ const createGenre = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
 
 const deleteGenre = async (req, res) => {
   try {
@@ -90,4 +85,30 @@ const deleteGenre = async (req, res) => {
   }
 };
 
-module.exports = { getAllGenres, getGenreById, updateGenre, createGenre, deleteGenre };
+const deleteGenreAll = async (req, res) => {
+  const { genreIds } = req.params;  // Nhận danh sách genreIds từ request body
+
+  if (!Array.isArray(genreIds) || genreIds.length === 0) {
+    return res.status(400).json({ message: 'Invalid or empty id array' });
+  }
+
+  try {
+    console.log(`Attempting to delete genres with IDs: ${genreIds.join(', ')}`);  // Log danh sách genreIds
+
+    const deletedCount = await GenreModel.deleteGenresAll(genreIds);  // Xóa thể loại theo danh sách ID
+
+    if (deletedCount === 0) {
+      return res.status(404).json({ message: 'No genres found with the given IDs' });
+    }
+
+    res.status(200).json({ message: 'Genres deleted successfully', deletedCount });
+  } catch (error) {
+    console.error('Error deleting genres:', error);
+    res.status(500).json({ message: 'Failed to delete genres' });
+  }
+};
+
+
+
+
+module.exports = { getAllGenres, getGenreById, updateGenre, createGenre, deleteGenre, deleteGenreAll };

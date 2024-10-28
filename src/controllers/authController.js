@@ -1,369 +1,416 @@
 const UserModel = require("../models/userModel");
-const bcrypt = require("bcryptjs");
-const sendEmail = require("../utils/sendEmail"); // Import hàm gửi email
-const isCompanyEmail = require("../utils/isCompanyEmail");
 const generateToken = require("../utils/generateToken");
-const { admin, db } = require("../config/firebase");
-const jwt = require("jsonwebtoken");
+const isCompanyEmail = require("../utils/isCompanyEmail");
+const bcrypt = require("bcryptjs");
+const { admin } = require("../config/firebase");
+const sendEmail = require("../utils/sendEmail");
+const { bucket } = require("../config/firebase");
+const { format } = require("util");
+const path = require("path");
 
-// Đăng ký người dùng
-const register = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password)
-      return res
-        .status(400)
-        .json({ message: "Email and password are required" });
+class AuthController {
+  static async register(req, res) {
+    try {
+      const { username, password, birthday, email, avatar } = req.body;
 
-    const role = isCompanyEmail(email) ? "admin" : "user";
-    const existingUser = await UserModel.getUserByEmail(email);
-    if (existingUser)
-      return res.status(400).json({ message: "User already exists" });
+      // Xác định vai trò dựa trên miền email
+      const role = isCompanyEmail(email) ? "admin" : "user";
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await UserModel.createUser(email, hashedPassword, role);
-
-    const { accessToken, refreshToken } = generateToken(newUser);
-
-    res.cookie("token", accessToken, { httpOnly: true });
-    res.cookie("refreshToken", refreshToken, { httpOnly: true });
-
-    res.status(201).json({
-      message: "User registered successfully",
-      user: newUser,
-      token: accessToken,
-    });
-  } catch (error) {
-    console.error("Register Error:", error.message, error.stack);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-// Đăng nhập người dùng
-const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await UserModel.getUserByEmail(email);
-    if (!user) return res.status(400).json({ message: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    const { accessToken, refreshToken } = generateToken(user);
-    // Lưu refresh token vào database với thời gian sống tùy thuộc vào rememberMe
-    const expiresIn = rememberMe
-      ? 30 * 24 * 60 * 60 * 1000
-      : 24 * 60 * 60 * 1000; // 30 days : 1 day
-    await db
-      .collection("refreshTokens")
-      .doc(user.id)
-      .set({
-        token: refreshToken,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + expiresIn),
-      });
-    // Set cookie với thời gian sống tương ứng
-    res.cookie("token", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
-    });
-
-    // Lưu session cho user
-    await db
-      .collection("userSessions")
-      .doc(user.id)
-      .set({
-        lastLogin: admin.firestore.FieldValue.serverTimestamp(),
-        deviceInfo: {
-          userAgent: req.headers["user-agent"],
-          ip: req.ip,
-        },
-        isRemembered: rememberMe,
-      });
-
-    res.json({
-      message: "Login successful",
-      user,
-      rememberMe,
-    });
-  } catch (error) {
-    console.error("Login Error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-// Đăng xuất người dùng
-const logout = (req, res) => {
-  res.clearCookie("token");
-  res.clearCookie("refreshToken");
-  res.json({ message: "Logged out successfully" });
-};
-
-// Quên mật khẩu
-const forgotPassword = async (req, res) => {
-  try {
-    const { email, isAdmin = false } = req.body;
-    const user = await UserModel.getUserByEmail(email);
-    
-    if (!user) {
-      return res
-        .status(404)
-        .json({ message: "User with that email does not exist" });
-    }
-
-    // Kiểm tra nếu là admin request nhưng email không phải company email
-    if (isAdmin && !isCompanyEmail(email)) {
-      return res.status(403).json({ 
-        message: "This email is not authorized for admin access" 
-      });
-    }
-
-    const resetToken = await UserModel.createPasswordResetToken(email);
-    
-    // Xác định base URL dựa vào loại user
-    const baseURL = process.env.NODE_ENV === 'production' 
-      ? process.env.FRONTEND_URL 
-      : 'http://localhost:3000';
-      
-    // Tạo URL reset password dựa vào loại user
-    const resetURL = isAdmin || isCompanyEmail(email)
-      ? `${baseURL}/auth/reset-password/${resetToken}`
-      : `${baseURL}/reset-password/${resetToken}`;
-
-    const message = `
-      Quên mật khẩu? Vui lòng nhấp vào đường link sau để đặt lại mật khẩu của bạn: 
-      ${resetURL}
-      
-      Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.
-      
-      Link sẽ hết hạn sau 10 phút.
-    `;
-
-    await sendEmail({
-      email: email,
-      subject: "Đặt lại mật khẩu của bạn (có hiệu lực trong 10 phút)",
-      message,
-    });
-
-    res.status(200).json({
-      status: "success",
-      message: "Token đã được gửi đến email của bạn!",
-    });
-  } catch (error) {
-    console.error("Forgot Password Error:", error);
-    res
-      .status(500)
-      .json({ message: "Có lỗi xảy ra khi gửi email đặt lại mật khẩu" });
-  }
-};
-
-// Đặt lại mật khẩu
-const resetPassword = async (req, res) => {
-  try {
-    const { token } = req.params;
-    const { password } = req.body;
-
-    const user = await UserModel.resetPassword(token, password);
-
-    const { accessToken, refreshToken } = generateToken(user);
-    res.cookie("token", accessToken, { httpOnly: true });
-    res.cookie("refreshToken", refreshToken, { httpOnly: true });
-
-    res.status(200).json({
-      status: "success",
-      message: "Mật khẩu đã được đặt lại thành công",
-    });
-  } catch (error) {
-    console.error("Reset Password Error:", error);
-    res.status(400).json({ message: "Token không hợp lệ hoặc đã hết hạn" });
-  }
-};
-
-// Hàm xử lý đăng nhập bằng Google
-const googleSignIn = async (req, res) => {
-  const { idToken, rememberMe = false } = req.body;
-
-  try {
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const { email, name, picture } = decodedToken;
-
-    const role = isCompanyEmail(email) ? "admin" : "user";
-
-    const userRef = db.collection("users").where("email", "==", email);
-    const userSnapshot = await userRef.get();
-
-    let user;
-
-    if (userSnapshot.empty) {
-      const newUserRef = db.collection("users").doc();
-      user = {
-        id: newUserRef.id,
-        email,
-        username: name || null,
-        avatar: picture || null,
+      // Tạo người dùng với role tương ứng
+      const userId = await UserModel.createUser({
+        username,
+        password,
         role,
-        birthday: null,
-        playlistsId: null,
-        favoritesId: null,
-        followsId: null,
-        waitinglistId: null,
-        listeninghistoryId: null,
-        reportsId: null,
-        recommendations: [],
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        // ... other user fields
-      };
-      await newUserRef.set(user);
-    } else {
-      user = userSnapshot.docs[0].data();
+        birthday,
+        email,
+        avatar,
+      });
+
+      // Tạo token cho người dùng mới đăng ký
+      const token = generateToken({ id: userId, email, role });
+
+      // Thiết lập cookie với token
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production", // Chỉ sử dụng secure trong môi trường sản xuất
+        maxAge: 24 * 60 * 60 * 1000, // 1 ngày
+      });
+
+      res
+        .status(201)
+        .json({ message: "User registered successfully", userId, token });
+    } catch (error) {
+      if (error.message === "Email đã được sử dụng") {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Server error", error });
     }
+  }
 
-    const { accessToken, refreshToken } = generateToken(user);
+  static async login(req, res) {
+    const { email, password, rememberMe } = req.body;
+    try {
+      console.log("Attempting to log in with email:", email);
 
-    // Thời gian sống của token dựa vào rememberMe
-    const expiresIn = rememberMe
-      ? 30 * 24 * 60 * 60 * 1000
-      : 24 * 60 * 60 * 1000;
+      const user = await UserModel.getUserByEmail(email);
+      if (!user) {
+        console.log("User not found for email:", email);
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
 
-    // Lưu refresh token vào database
-    await db
-      .collection("refreshTokens")
-      .doc(user.id)
-      .set({
-        token: refreshToken,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + expiresIn),
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      if (!passwordMatch) {
+        console.log("Password mismatch for user:", email);
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Create token
+      const token = generateToken({ id: user.id, email, role: user.role });
+
+      // Đặt thời gian sống của cookie: 1 ngày nếu không chọn rememberMe và 7 ngày nếu có
+      const maxAge = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge:maxAge,
       });
 
-    // Lưu thông tin session
-    await db
-      .collection("userSessions")
-      .doc(user.id)
-      .set({
-        lastLogin: admin.firestore.FieldValue.serverTimestamp(),
-        deviceInfo: {
-          userAgent: req.headers["user-agent"],
-          ip: req.ip,
-        },
-        isRemembered: rememberMe,
-        loginMethod: "google",
+      res.status(200).json({ message: "Login successful", user, token, });
+    } catch (error) {
+      console.error("Error during login:", error); // In ra lỗi để debug
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+
+  static async getUser(req, res) {
+    const { id } = req.params;
+    const user = await UserModel.getUserById(id);
+    res.status(200).json(user);
+  }
+
+  static async updateUser(req, res) {
+    const { id } = req.params;
+    const userData = req.body;
+
+    try {
+      // Lấy thông tin người dùng hiện tại
+      const user = await UserModel.getUserById(id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Xử lý cập nhật avatar nếu có file mới
+      if (req.file) {
+        // Xử lý xóa ảnh cũ nếu có
+        if (user.avatar && user.avatar.includes("firebase")) {
+          const oldImagePath = user.avatar.split("/o/")[1].split("?")[0];
+          try {
+            await bucket.file(decodeURIComponent(oldImagePath)).delete();
+          } catch (error) {
+            console.log("Error deleting old image:", error);
+            // Không return lỗi ở đây, tiếp tục upload ảnh mới
+          }
+        }
+
+        // Tạo tên file mới với userId để tránh trùng lặp
+        const timestamp = Date.now();
+        const fileName = `avatars/${id}_${timestamp}_${path.basename(
+          req.file.originalname
+        )}`;
+        const blob = bucket.file(fileName);
+
+        // Tạo stream để upload file
+        const blobStream = blob.createWriteStream({
+          metadata: {
+            contentType: req.file.mimetype,
+          },
+        });
+
+        // Xử lý lỗi trong quá trình upload
+        blobStream.on("error", (error) => {
+          console.error("Upload error:", error);
+          return res
+            .status(500)
+            .json({ message: "Unable to upload image", error });
+        });
+
+        // Khi upload hoàn tất
+        blobStream.on("finish", async () => {
+          // Tạo URL công khai cho file
+          const publicUrl = format(
+            `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+          );
+
+          // Cập nhật URL avatar mới vào database
+          userData.avatar = publicUrl; // Thay đổi avatar mới trong userData
+
+          await UserModel.updateUser(id, userData);
+          res.status(200).json({
+            message: "User updated successfully",
+            avatarUrl: publicUrl,
+          });
+        });
+
+        // Ghi dữ liệu file vào stream
+        blobStream.end(req.file.buffer);
+      } else {
+        // Nếu không có file mới, chỉ cập nhật thông tin người dùng
+        await UserModel.updateUser(id, userData);
+        res.status(200).json({
+          message: "User updated successfully",
+          updatedAt: updatedUser.updatedAt,
+        });
+      }
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+
+  static async deleteUser(req, res) {
+    try {
+      const { id } = req.params;
+
+      // Kiểm tra nếu người dùng tồn tại
+      const user = await UserModel.getUserById(id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Xóa người dùng
+      await UserModel.deleteUser(id);
+
+      // Trả về thông báo thành công
+      res.status(200).json({ message: "User deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+
+  static async getAllUsers(req, res) {
+    const users = await UserModel.getAllUsers();
+    res.status(200).json(users);
+  }
+
+  static async getPaginatedUsers(req, res) {
+    try {
+      const page = parseInt(req.query.page) || 1; // Lấy số trang từ query string
+      const users = await UserModel.getPaginatedUsers(page);
+      const totalCount = await UserModel.getTotalUsersCount(); // Lấy tổng số người dùng
+
+      const totalPages = Math.ceil(totalCount / 5); // Tính tổng số trang
+
+      res.status(200).json({
+        users,
+        currentPage: page,
+        totalPages,
+        totalCount,
       });
+    } catch (error) {
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: expiresIn,
-    });
+  static async googleLogin(req, res) {
+    const { idToken } = req.body; // Nhận idToken từ frontend
 
-    res.status(200).json({
-      message: "Đăng nhập thành công",
-      user: {
+    try {
+      // Xác thực ID token với Firebase
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const { uid, email, name, picture } = decodedToken;
+
+      // Kiểm tra xem người dùng đã tồn tại chưa
+      let user = await UserModel.getUserByEmail(email);
+      if (!user) {
+        // Nếu người dùng chưa tồn tại, tạo người dùng mới
+        const role = isCompanyEmail(email) ? "admin" : "user";
+        const userId = await UserModel.createUser({
+          username: name,
+          email,
+          avatar: picture,
+          role,
+          password: null, // Mật khẩu sẽ là null vì người dùng sử dụng Google
+        });
+        user = { id: userId, email, role };
+      }
+
+      // Tạo token cho người dùng
+      const token = generateToken({
         id: user.id,
         email: user.email,
-        username: user.username,
-        avatar: user.avatar,
-        birthday: user.birthday,
         role: user.role,
-        playlistsId: user.playlistsId,
-      },
-      accessToken,
-      rememberMe,
-    });
-  } catch (error) {
-    console.error("Google Sign-In Error:", error);
-    res
-      .status(400)
-      .json({ error: "Xác thực thất bại", details: error.message });
-  }
-};
-
-const refreshToken = async (req, res) => {
-  const refreshToken = req.cookies.refreshToken;
-
-  if (!refreshToken) {
-    return res.status(401).json({ message: "Refresh token không tồn tại" });
-  }
-
-  try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-
-    // Kiểm tra refresh token trong database và thời hạn
-    const tokenDoc = await db.collection("refreshTokens").doc(decoded.id).get();
-    if (
-      !tokenDoc.exists ||
-      tokenDoc.data().token !== refreshToken ||
-      tokenDoc.data().expiresAt.toDate() < new Date()
-    ) {
-      return res
-        .status(401)
-        .json({ message: "Refresh token không hợp lệ hoặc đã hết hạn" });
-    }
-
-    const userRef = db.collection("users").doc(decoded.id);
-    const userDoc = await userRef.get();
-
-    if (!userDoc.exists) {
-      return res.status(401).json({ message: "Người dùng không tồn tại" });
-    }
-
-    const user = userDoc.data();
-    // Lấy thông tin session để kiểm tra rememberMe
-    const sessionDoc = await db
-      .collection("userSessions")
-      .doc(decoded.id)
-      .get();
-    const isRemembered = sessionDoc.exists
-      ? sessionDoc.data().isRemembered
-      : false;
-
-    const { accessToken, refreshToken: newRefreshToken } = generateToken(user);
-    const expiresIn = isRemembered
-      ? 30 * 24 * 60 * 60 * 1000
-      : 24 * 60 * 60 * 1000;
-
-    // Cập nhật refresh token mới trong database
-    await db
-      .collection("refreshTokens")
-      .doc(user.id)
-      .set({
-        token: newRefreshToken,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + expiresIn),
+      });
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 24 * 60 * 60 * 1000,
       });
 
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: expiresIn
-    });
-
-   
-    res.json({ 
-      accessToken,
-      isRemembered 
-    });
-  } catch (error) {
-    console.error('Refresh Token Error:', error);
-    res.status(401).json({ message: 'Refresh token không hợp lệ hoặc hết hạn' });
+      res.status(200).json({ message: "Login with Google successful", token });
+    } catch (error) {
+      console.error("Error during Google login:", error);
+      res.status(500).json({ message: "Server error", error });
+    }
   }
-};
 
-module.exports = {
-  register,
-  login,
-  logout,
-  forgotPassword,
-  resetPassword,
-  googleSignIn,
-  refreshToken,
-};
+  static async logout(req, res) {
+    try {
+      // Xóa cookie chứa token
+      res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+      });
+      res.status(200).json({ message: "Logout successful" });
+    } catch (error) {
+      console.error("Error during logout:", error);
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+
+  static async forgotPassword(req, res) {
+    const { email } = req.body;
+
+    try {
+      const user = await UserModel.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Tạo token reset password
+      const resetToken = crypto.randomBytes(32).toString("hex");
+      const resetTokenHash = crypto
+        .createHash("sha256")
+        .update(resetToken)
+        .digest("hex");
+
+      // Lưu token đã mã hóa vào user model, thiết lập thời hạn 1 giờ
+      await UserModel.setResetToken(
+        user.id,
+        resetTokenHash,
+        Date.now() + 3600000
+      );
+
+      // Link reset password cho client và admin
+      const clientUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+      const adminUrl = `${process.env.ADMIN_URL}/reset-password/${resetToken}`;
+
+      // Gửi email chứa link
+      const emailContent = `
+        <p>Bạn đã yêu cầu đặt lại mật khẩu. Nhấp vào link để tiếp tục:</p>
+        <p>Client: <a href="${clientUrl}">Reset Password for Client</a></p>
+        <p>Admin: <a href="${adminUrl}">Reset Password for Admin</a></p>
+      `;
+
+      await sendEmail(user.email, "Password Reset Request", emailContent);
+      res.status(200).json({ message: "Password reset email sent" });
+    } catch (error) {
+      console.error("Error in forgotPassword:", error);
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+
+  static async resetPassword(req, res) {
+    const { token } = req.params;
+    const { newPassword } = req.body;
+
+    try {
+      // Hash token để kiểm tra
+      const hashedToken = crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+      // Lấy thông tin user theo token đã hash
+      const user = await UserModel.getUserByResetToken(hashedToken);
+      if (!user || user.resetTokenExpiry < Date.now()) {
+        return res
+          .status(400)
+          .json({ message: "Token is invalid or has expired" });
+      }
+
+      // Cập nhật mật khẩu mới cho người dùng
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await UserModel.updatePassword(user.id, hashedPassword);
+
+      // Xoá token reset password
+      await UserModel.clearResetToken(user.id);
+
+      res.status(200).json({ message: "Password has been reset successfully" });
+    } catch (error) {
+      console.error("Error in resetPassword:", error);
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+
+  static async uploadAvatar(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const userId = req.params.id;
+      const user = await UserModel.getUserById(userId);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Xử lý xóa ảnh cũ nếu có
+      if (user.avatar && user.avatar.includes("firebase")) {
+        const oldImagePath = user.avatar.split("/o/")[1].split("?")[0];
+        try {
+          await bucket.file(decodeURIComponent(oldImagePath)).delete();
+        } catch (error) {
+          console.log("Error deleting old image:", error);
+          // Không return lỗi ở đây, tiếp tục upload ảnh mới
+        }
+      }
+
+      // Tạo tên file mới với userId để tránh trùng lặp
+      const timestamp = Date.now();
+      const fileName = `avatars/${userId}_${timestamp}_${path.basename(
+        req.file.originalname
+      )}`;
+      const blob = bucket.file(fileName);
+
+      // Tạo stream để upload file
+      const blobStream = blob.createWriteStream({
+        metadata: {
+          contentType: req.file.mimetype,
+        },
+      });
+
+      // Xử lý lỗi trong quá trình upload
+      blobStream.on("error", (error) => {
+        console.error("Upload error:", error);
+        return res
+          .status(500)
+          .json({ message: "Unable to upload image", error });
+      });
+
+      // Khi upload hoàn tất
+      blobStream.on("finish", async () => {
+        // Tạo URL công khai cho file
+        const publicUrl = format(
+          `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+        );
+
+        // Cập nhật URL avatar mới vào database
+        await UserModel.updateUserAvatar(userId, publicUrl);
+
+        res.status(200).json({
+          message: "Upload successful",
+          avatarUrl: publicUrl,
+        });
+      });
+
+      // Ghi dữ liệu file vào stream
+      blobStream.end(req.file.buffer);
+    } catch (error) {
+      console.error("Error in uploadAvatar:", error);
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+}
+
+module.exports = AuthController;

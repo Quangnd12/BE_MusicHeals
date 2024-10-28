@@ -4,23 +4,25 @@ const cors = require("cors");
 const morgan = require("morgan");
 const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
+const helmet = require("helmet");
+
+dotenv.config();
+
+const db = require("./src/config/db"); // Import file cấu hình MySQL
 const authRoutes = require("./src/routes/authRoutes");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./src/config/swagger");
 const userRoutes = require("./src/routes/userRoutes");
-const adminRoutes = require('./src/routes/adminRoutes');
+const adminRoutes = require("./src/routes/adminRoutes");
 const artistRoutes = require("./src/routes/artistRoutes");
-const followRoutes = require('./src/routes/followsRoutes');
+const followRoutes = require("./src/routes/followsRoutes");
 const genreRoutes = require("./src/routes/genreRoutes");
 const albumRoutes = require("./src/routes/albumRoutes");
 const favoriteRoutes = require("./src/routes/favoriteRoutes");
-const helmet = require("helmet");
-const songRoutes = require('./src/routes/songRoutes');
-dotenv.config();
+const songRoutes = require("./src/routes/songRoutes");
+const errorHandlerMiddleware = require("./src/middlewares/errorHandler");
 
 const app = express();
-const errorHandlerMiddleware = require('./src/middlewares/errorHandler');
-
 
 // Cấu hình bảo mật HTTP headers
 app.use(helmet());
@@ -28,8 +30,8 @@ app.use(helmet());
 // Cấu hình CORS
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000", // Dùng biến môi trường cho client URL
-    credentials: true, // Cho phép gửi cookie và thông tin xác thực
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    credentials: true,
   })
 );
 
@@ -37,10 +39,8 @@ app.use(
 app.use(morgan("dev"));
 
 // Body parser để parse request body JSON
-app.use(bodyParser.json());
-
-// Xử lý cookie
-app.use(cookieParser());
+app.use(bodyParser.json()); // Để parse JSON body
+app.use(cookieParser())
 
 // Swagger Documentation
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -48,14 +48,14 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
-app.use('/api', adminRoutes);
+app.use("/api", adminRoutes);
 app.use("/api", artistRoutes);
-app.use('/api', followRoutes);
-
+app.use("/api", followRoutes);
 app.use("/api/genres", genreRoutes);
 app.use("/api/", albumRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/songs", songRoutes);
+
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({
@@ -65,11 +65,13 @@ app.use((req, res, next) => {
 
 // Xử lý lỗi 500 (Server Error)
 app.use((err, req, res, next) => {
-  console.error(err.stack); // Log lỗi chi tiết
+  console.error(err.stack);
   res.status(500).json({
     message: "Có lỗi xảy ra từ server. Vui lòng thử lại sau.",
   });
 });
+
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

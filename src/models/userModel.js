@@ -1,297 +1,139 @@
-const { db, storage } = require("../config/firebase");
+const db = require("../config/db");
 const bcrypt = require("bcryptjs");
-const sharp = require('sharp'); // Sử dụng thư viện sharp để nén ảnh
-const crypto = require('crypto');
 
 class UserModel {
-  constructor() {
-    this.collection = db.collection("users");
-  }
-
-  /**
-    * Get all users with pagination and search
-   * @param {number} page - Page number
-   * @param {number} limit - Number of users per page
-   * @param {string} searchTerm - Search term for username or email
-   * @returns {Promise<Object>} Object containing users, total pages, and total users
-   */
-
-  async getAllUsers(page = 1, limit = 5, searchTerm = '') {
-    let query = this.collection.orderBy("createdAt", "desc");
-  
-    // Nếu có searchTerm, tìm kiếm theo email hoặc username
-    if (searchTerm) {
-      const emailQuery = this.collection
-        .where("email", ">=", searchTerm)
-        .where("email", "<=", searchTerm + "\uf8ff");
-  
-      const usernameQuery = this.collection
-        .where("username", ">=", searchTerm)
-        .where("username", "<=", searchTerm + "\uf8ff");
-  
-      const [emailSnapshot, usernameSnapshot] = await Promise.all([emailQuery.get(), usernameQuery.get()]);
-  
-      // Kết hợp kết quả từ cả email và username
-      const emailUsers = emailSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const usernameUsers = usernameSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  
-      // Xóa các bản ghi trùng lặp (cùng ID)
-      const users = [...emailUsers, ...usernameUsers].reduce((acc, user) => {
-        if (!acc.find(u => u.id === user.id)) {
-          acc.push(user);
-        }
-        return acc;
-      }, []);
-  
-      // Áp dụng phân trang
-      const startAt = (page - 1) * limit;
-      const paginatedUsers = users.slice(startAt, startAt + limit);
-  
-      return {
-        users: paginatedUsers,
-        totalPages: Math.ceil(users.length / limit),
-        totalUsers: users.length
-      };
-    }
-  
-    // Trường hợp không có searchTerm, chỉ lấy tất cả người dùng
-    const countSnapshot = await query.get();
-    const totalUsers = countSnapshot.size;
-  
-    // Phân trang
-    const startAt = (page - 1) * limit;
-    query = query.offset(startAt).limit(limit);
-  
-    const snapshot = await query.get();
-    const users = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      password: undefined, // Loại bỏ trường password khỏi kết quả trả về
-    }));
-  
-    return {
-      users,
-      totalPages: Math.ceil(totalUsers / limit),
-      totalUsers
-    };
-  }
-  
-
-  /**
-   * Tạo người dùng mới
-   * @param {string} email - Email của người dùng
-   * @param {string} password - Mật khẩu của người dùng
-   * @param {string} username - Tên người dùng
-   * @param {string} [role='user'] - Vai trò của người dùng
-   * @param {string} [avatar=''] - Hình ảnh người dùng
-   * @returns {Promise<{id: string, email: string, username: string, role: string}>} Thông tin người dùng đã tạo
-   */
-  async createUser(email, password, role = "user", avatar = "") {
-    // Kiểm tra email đã tồn tại
-    const existingUser = await this.getUserByEmail(email);
-    if (existingUser) {
-      throw new Error("Email is already in use");
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await this.collection.add({
-      email,
-      username: null,
-      password: hashedPassword,
+  static async createUser(userData) {
+    const {
+      username = null,
+      password,
       role,
-      birthday: null,
-      avatar: null,
-      playlistsId: null, // Giá trị mặc định hoặc bỏ trống
-      favoritesId: null,
-      followsId: null,
-      waitinglistId: null,
-      listeninghistoryId: null,
-      reportsId: null,
-      recommendations: [],
-      createdAt: new Date(),
-    });
-    return { id: newUser.id, email, role };
+      birthday = null,
+      email,
+      avatar = null,
+    } = userData;
+
+    // Kiểm tra xem email đã được sử dụng chưa
+    const emailUsed = await UserModel.isEmailUsed(email);
+    if (emailUsed) {
+      throw new Error("Email đã được sử dụng"); // Ném ra lỗi nếu email đã tồn tại
+    }
+
+    // Mã hóa mật khẩu
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const query =
+      "INSERT INTO users (username, password, role, birthday, email, avatar) VALUES (?, ?, ?, ?, ?, ?)";
+    const [result] = await db.execute(query, [
+      username,
+      hashedPassword,
+      role,
+      birthday,
+      email,
+      avatar,
+    ]);
+    return result.insertId;
   }
 
-  /**
-   * Lấy thông tin người dùng bằng email
-   * @param {string} email - Email của người dùng
-   * @returns {Promise<{id: string, email: string, password: string, role: string} | null>} Thông tin người dùng hoặc null nếu không tìm thấy
-   */
-  async getUserByEmail(email) {
-    const snapshot = await this.collection
-      .where("email", "==", email)
-      .limit(1)
-      .get();
-    if (!snapshot.empty) {
-      return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-    }
-    return null;
+  static async getPaginatedUsers(page = 1) {
+    const limit = 5; // Số lượng bản ghi mỗi trang
+    const offset = (page - 1) * limit;
+
+    const query = "SELECT * FROM users LIMIT ? OFFSET ?";
+    const [rows] = await db.execute(query, [limit, offset]);
+
+    return rows;
   }
 
-  /**
-   * Lấy thông tin người dùng bằng ID
-   * @param {string} id - ID của người dùng
-   * @returns {Promise<{id: string, email: string, role: string} | null>} Thông tin người dùng hoặc null nếu không tìm thấy
-   */
-  async getUserById(id) {
-    const user = await this.collection.doc(id).get();
-    if (user.exists) {
-      const userData = user.data();
-      delete userData.password; // Loại bỏ password khỏi dữ liệu trả về
-      return { id: user.id, ...userData };
-    }
-    return null;
+  static async getTotalUsersCount() {
+    const query = "SELECT COUNT(*) as count FROM users";
+    const [rows] = await db.execute(query);
+    return rows[0].count; // Trả về tổng số người dùng
   }
 
-  /**
-   * Cập nhật thông tin người dùng
-   * @param {string} id - ID của người dùng
-   * @param {Object} data - Dữ liệu cần cập nhật
-   * @returns {Promise<{id: string, [key: string]: any}>} Thông tin người dùng đã cập nhật
-   */
-  async updateUser(id, data) {
-    const userRef = this.collection.doc(id);
-    await db.runTransaction(async (transaction) => {
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) {
-        throw new Error('User not found.');
-      }
-      transaction.update(userRef, data);
-    });
-    return { id, ...data };
-  }
-  
-
-  /**
-   * Update user profile
-   * @param {string} userId - User ID
-   * @param {Object} updates - Object containing updates (username and/or avatar)
-   * @returns {Promise<Object>} Updated user data
-   */
-  async updateProfile(userId, updates) {
-    const userRef = this.collection.doc(userId);
-    const user = await userRef.get();
-
-    if (!user.exists) {
-      throw new Error("User not found");
-    }
-
-    const validUpdates = {};
-    if (updates.username !== undefined) {
-      validUpdates.username = updates.username;
-    }
-
-    // Chỉ cập nhật nếu có dữ liệu hợp lệ
-    if (Object.keys(validUpdates).length > 0) {
-      await userRef.update(validUpdates);
-    }
-
-    // Trả về dữ liệu người dùng đã cập nhật
-    return { id: user.id, ...user.data(), ...validUpdates };
+  static async getUserById(id) {
+    const query = "SELECT * FROM users WHERE id = ?";
+    const [rows] = await db.execute(query, [id]);
+    return rows[0];
   }
 
-  /**
-   * Upload avatar image
-   * @param {string} userId - User ID
-   * @param {Buffer} fileBuffer - File buffer of the image
-   * @param {string} mimeType - MIME type of the image
-   * @returns {Promise<string>} URL of the uploaded image
-   */
- 
-
-  async uploadAvatar(userId, fileBuffer, mimeType) {
-    // Kiểm tra định dạng ảnh
-    const validMimeTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    if (!validMimeTypes.includes(mimeType)) {
-      throw new Error('Invalid image format. Please upload JPEG, PNG, or GIF images.');
-    }
-  
-    // Đặt giới hạn kích thước file (ví dụ: 2MB)
-    const maxSize = 2 * 1024 * 1024; // 2MB
-    if (fileBuffer.length > maxSize) {
-      throw new Error('File size exceeds limit. Please upload an image smaller than 2MB.');
-    }
-  
-    // Nén ảnh trước khi tải lên
-    const compressedBuffer = await sharp(fileBuffer)
-      .resize({ width: 300, height: 300 }) // Resize ảnh về kích thước 300x300
-      .toBuffer();
-  
-    // Đặt tên file
-    const fileName = `avatar/${userId}_${Date.now()}.${mimeType.split('/')[1]}`;
-    const file = storage.file(fileName);
-  
-    // Lưu file lên Firebase Storage
-    await file.save(compressedBuffer, {
-      metadata: { contentType: mimeType },
-      public: true, // Tạo URL công khai
-    });
-  
-    // Lấy URL công khai của file đã lưu
-    const [url] = await file.getSignedUrl({
-      action: 'read',
-      expires: '03-01-2500',
-    });
-  
-    // Cập nhật thông tin avatar trong hồ sơ người dùng
-    await this.updateProfile(userId, { avatar: url });
-    return url;
+  static async getAllUsers() {
+    const query = "SELECT * FROM users";
+    const [rows] = await db.execute(query);
+    return rows;
   }
 
-  async createPasswordResetToken(email) {
-    const user = await this.getUserByEmail(email);
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const passwordResetToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-
-    const passwordResetExpires = Date.now() + 10 * 60 * 1000; // Token hết hạn sau 10 phút
-
-    await this.collection.doc(user.id).update({
-      passwordResetToken,
-      passwordResetExpires
-    });
-
-    return resetToken;
+  static async getUserByEmail(email) {
+    const query = "SELECT * FROM users WHERE email = ?";
+    const [rows] = await db.execute(query, [email]);
+    return rows[0]; // Trả về người dùng đầu tiên tìm thấy
   }
 
-  async resetPassword(token, newPassword) {
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
+  static async updateUser(id, userData) {
+    const {
+      username = null,
+      password = null,
+      birthday = null,
+      avatar = null,
+  } = userData;
 
-    const snapshot = await this.collection
-      .where('passwordResetToken', '==', hashedToken)
-      .where('passwordResetExpires', '>', Date.now())
-      .limit(1)
-      .get();
+    // Kiểm tra nếu có mật khẩu mới thì mã hóa mật khẩu, nếu không giữ nguyên
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
-    if (snapshot.empty) {
-      throw new Error('Token is invalid or has expired');
-    }
+    const query =
+      "UPDATE users SET username = ?, password = COALESCE(?, password), birthday = ?, avatar = ?,  updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
+    await db.execute(query, [
+      username,
+      hashedPassword, // Sử dụng mật khẩu đã mã hóa (nếu có)
+      birthday,
+      avatar,
+      id,
+    ]);
+  }
 
-    const user = snapshot.docs[0];
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+  static async updateUserAvatar(userId, avatarUrl) {
+    const query = "UPDATE users SET avatar = ?, updatedAt = CURRENT_TIMESTAMP  WHERE id = ?";
+    await db.execute(query, [avatarUrl, userId]);
+  }
 
-    await user.ref.update({
-      password: hashedPassword,
-      passwordResetToken: null,
-      passwordResetExpires: null
-    });
+  static async getUserAvatar(userId) {
+    const query = "SELECT avatar FROM users WHERE id = ?";
+    const [rows] = await db.execute(query, [userId]);
+    return rows[0]?.avatar || null;
+  }
 
-    return { id: user.id, email: user.data().email };
+  static async deleteUser(id) {
+    const query = "DELETE FROM users WHERE id = ?";
+    await db.execute(query, [id]);
+  }
+
+  static async isEmailUsed(email) {
+    const query = "SELECT * FROM users WHERE email = ?";
+    const [rows] = await db.execute(query, [email]);
+    return rows.length > 0; // Trả về true nếu có ít nhất một người dùng với email này
+  }
+
+  static async setResetToken(id, resetTokenHash, resetTokenExpiry) {
+    const query =
+      "UPDATE users SET resetToken = ?, resetTokenExpiry = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
+    await db.execute(query, [resetTokenHash, resetTokenExpiry, id]);
+  }
+
+  static async getUserByResetToken(resetTokenHash) {
+    const query = "SELECT * FROM users WHERE resetToken = ?";
+    const [rows] = await db.execute(query, [resetTokenHash]);
+    return rows[0];
+  }
+
+  static async updatePassword(id, hashedPassword) {
+    const query = "UPDATE users SET password = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
+    await db.execute(query, [hashedPassword, id]);
+  }
+
+  static async clearResetToken(id) {
+    const query =
+      "UPDATE users SET resetToken = NULL, resetTokenExpiry = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
+    await db.execute(query, [id]);
   }
 }
-  
 
-
-
-
-module.exports = new UserModel();
+module.exports = UserModel;

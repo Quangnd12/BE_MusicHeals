@@ -1,168 +1,274 @@
-const Album = require("../models/albumModel");
+const AlbumModel = require('../models/albumModel');
+const multer = require('multer'); // Import multer cho upload file
+const { bucket } = require("../config/firebase");
+const { format } = require("util");
+const path = require("path");
+// Cấu hình multer
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Create a new album
-exports.createAlbum = async (req, res) => {
+// Lấy tất cả albums
+const getAllAlbums = async (req, res) => {
   try {
-    const {
-      title,
-      artistId,
-      songId,
-      describe,
-      totalTracks,
-      popularity,
-      releaseDate,
-    } = req.body;
-
-    // Upload ảnh album nếu có
-    let imageUrl = null;
-    if (req.file) {
-      imageUrl = await Album.uploadImage(req.file);
-    }
-
-    // Xử lý artistId và songId
-    const processedArtistId = artistId ? (
-      Array.isArray(artistId) 
-        ? artistId 
-        : artistId.split(',').map(id => id.trim())
-    ) : [];
-
-    const processedSongId = songId ? (
-      Array.isArray(songId)
-        ? songId
-        : songId.split(',').map(id => id.trim())
-    ) : [];
-
-    // Chuẩn bị dữ liệu album cho Firestore
-    const albumData = {
-      title,
-      artistId: processedArtistId,
-      songId: processedSongId,
-      describe,
-      totalTracks: parseInt(totalTracks, 10) || 0,
-      popularity: parseInt(popularity, 10) || 0,
-      releaseDate: new Date(releaseDate),
-      image: imageUrl,
-    };
-
-    const albumId = await Album.create(albumData);
-    const createdAlbum = await Album.findById(albumId);
-
-    res.status(201).json({
-      album: createdAlbum,
-      message: "Tạo album thành công",
-      albumId,
-    });
+    const albums = await AlbumModel.getAllAlbums();
+    res.json(albums);
   } catch (error) {
-    console.error("Error creating album:", error);
-    res.status(500).json({
-      message: "Đã xảy ra lỗi khi tạo album",
-      error: error.message,
-    });
+    res.status(500).json({ message: 'Error retrieving albums', error: error.message });
   }
 };
 
-// Get album by ID
-exports.getAlbumById = async (req, res) => {
+// Lấy album theo ID
+const getAlbumById = async (req, res) => {
   try {
-    const { albumId } = req.params;
-    const album = await Album.findById(albumId);
+    const { id } = req.params;
+    const album = await AlbumModel.getAlbumById(id);
+
     if (!album) {
-      return res.status(404).json({ message: "Album không tồn tại" });
+      return res.status(404).json({ message: 'Album not found' });
     }
-    res.status(200).json(album);
+
+    res.json(album);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Đã xảy ra lỗi", error: error.message });
+    res.status(500).json({ message: 'Error retrieving album', error: error.message });
   }
 };
 
-// Update album
-exports.updateAlbum = async (req, res) => {
+// Tạo album mới
+const createAlbum = async (req, res) => {
   try {
-    const { albumId } = req.params;
-    const updateData = { ...req.body };
+    const { title, artistID, releaseDate } = req.body;
 
-    // Handle numeric fields
-    if (updateData.totalTracks)
-      updateData.totalTracks = parseInt(updateData.totalTracks, 10);
-    if (updateData.popularity)
-      updateData.popularity = parseInt(updateData.popularity, 10);
+    // Kiểm tra các trường bắt buộc
+    if (!title || !artistID || !releaseDate) {
+      return res.status(400).json({ message: 'Title, artistID, and releaseDate are required' });
+    }
 
-    // Handle date field
-    if (updateData.releaseDate)
-      updateData.releaseDate = new Date(updateData.releaseDate);
+    // Tạo album mới
+    const newAlbum = { title, artistID, releaseDate };
 
-    // Xử lý các trường dạng mảng
-    ["songId, artistId"].forEach((field) => {
-      if (updateData[field]) {
-        updateData[field] = Array.isArray(updateData[field])
-          ? updateData[field]
-          : [updateData[field]];
-      }
-    });
-
-    // Upload new image if provided
+    // Xử lý ảnh album nếu có
     if (req.file) {
-      const imageUrl = await Album.uploadImage(req.file);
-      updateData.image = imageUrl;
+      // Tạo tên file mới với albumId để tránh trùng lặp
+      const timestamp = Date.now();
+      const fileName = `albums/${timestamp}_${path.basename(req.file.originalname)}`;
+      const blob = bucket.file(fileName);
+
+      // Tạo stream để upload file
+      const blobStream = blob.createWriteStream({
+        metadata: {
+          contentType: req.file.mimetype,
+        },
+      });
+
+      // Xử lý lỗi trong quá trình upload
+      blobStream.on("error", (error) => {
+        console.error("Upload error:", error);
+        return res.status(500).json({ message: "Unable to upload image", error });
+      });
+
+      // Khi upload hoàn tất
+      blobStream.on("finish", async () => {
+        // Tạo URL công khai cho file
+        const publicUrl = format(
+          `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+        );
+        
+        // Cập nhật URL ảnh vào newAlbum
+        newAlbum.image = publicUrl;
+
+        // Lưu album vào database và lấy ID mới
+        const albumId = await AlbumModel.createAlbum(newAlbum);
+
+        // Trả về thông tin album mới, bao gồm ID
+        res.status(201).json({ id: albumId, ...newAlbum });
+      });
+
+      // Ghi dữ liệu file vào stream
+      blobStream.end(req.file.buffer);
+    } else {
+      // Nếu không có file mới, chỉ lưu album vào database mà không có ảnh
+      const albumId = await AlbumModel.createAlbum(newAlbum);
+      res.status(201).json({ id: albumId, ...newAlbum });
+    }
+  } catch (error) {
+    console.error('Error creating album:', error);
+    res.status(500).json({ message: 'Error creating album', error: error.message });
+  }
+};
+
+
+// Cập nhật album theo ID
+const updateAlbum = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedAlbum = req.body;
+
+    // Kiểm tra album có tồn tại không
+    const existingAlbum = await AlbumModel.getAlbumById(id);
+    if (!existingAlbum) {
+      return res.status(404).json({ message: 'Album not found' });
     }
 
-    updateData.updatedAt = new Date();
+    // Kiểm tra và xử lý ảnh album nếu có file mới
+    if (req.file) {
+      // Nếu album có ảnh cũ và ảnh này ở Firebase, xóa ảnh cũ trước khi upload
+      if (existingAlbum.image && existingAlbum.image.includes("firebase")) {
+        const oldImagePath = existingAlbum.image.split("/o/")[1].split("?")[0];
+        try {
+          await bucket.file(decodeURIComponent(oldImagePath)).delete();
+        } catch (error) {
+          console.log("Error deleting old image:", error);
+          // Tiếp tục upload ảnh mới
+        }
+      }
 
-    const updatedAlbum = await Album.update(albumId, updateData);
-    if(!updateData) {
-      return res.status(404).json({message: "Không tìm thấy album"})
+      // Tạo tên file mới với albumId để tránh trùng lặp
+      const timestamp = Date.now();
+      const fileName = `albums/${id}_${timestamp}_${path.basename(req.file.originalname)}`;
+      const blob = bucket.file(fileName);
+
+      // Tạo stream để upload file
+      const blobStream = blob.createWriteStream({
+        metadata: {
+          contentType: req.file.mimetype,
+        },
+      });
+
+      // Xử lý lỗi trong quá trình upload
+      blobStream.on("error", (error) => {
+        console.error("Upload error:", error);
+        return res.status(500).json({ message: "Unable to upload image", error });
+      });
+
+      // Khi upload hoàn tất
+      blobStream.on("finish", async () => {
+        // Tạo URL công khai cho file
+        const publicUrl = format(
+          `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+        );
+        // Cập nhật URL ảnh mới vào updatedAlbum
+        updatedAlbum.image = publicUrl;
+
+        // Cập nhật album trong database
+        await AlbumModel.updateAlbum(id, updatedAlbum);
+        res.status(200).json({
+          message: "Album updated successfully",
+          imageUrl: publicUrl,
+        });
+      });
+
+      // Ghi dữ liệu file vào stream
+      blobStream.end(req.file.buffer);
+    } else {
+      // Nếu không có file mới, chỉ cập nhật thông tin album
+      await AlbumModel.updateAlbum(id, updatedAlbum);
+      res.status(200).json({ message: "Album updated successfully" });
     }
-    res
-      .status(200)
-      .json({ message: "Cập nhật Album thành công", album: updatedAlbum });
   } catch (error) {
     console.error("Error updating album:", error);
-    res.status(500).json({
-      message: "Có lỗi xảy ra khi cập nhật album",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// Delete album
-exports.deleteAlbum = async (req, res) => {
+
+// Xóa album theo ID
+// Xóa album theo ID
+const deleteAlbum = async (req, res) => {
   try {
-    const { albumId } = req.params;
-    await Album.delete(albumId);
-    res.status(200).json({ message: "Album deleted successfully" });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "An error occurred", error: error.message });
-  }
-};
+    const { id } = req.params;
 
-// Get all albums
-exports.getAllAlbums = async (req, res) => {
-  try {
-    const { page = 1, limit = 5, searchTerm = "" } = req.query;
-
-    const result = await Album.getAllAlbums(
-      parseInt(page),
-      parseInt(limit),
-      searchTerm
-    );
-
-    if (!result || !result.albums) {
-      throw new Error("Invalid result from AlbumModel.getAllAlbums");
+    // Kiểm tra album có tồn tại không
+    const existingAlbum = await AlbumModel.getAlbumById(id);
+    if (!existingAlbum) {
+      return res.status(404).json({ message: 'Album not found' });
     }
 
-    res.status(200).json({
-      total: result.totalAlbums,
-      currentPage: parseInt(page),
-      totalPages: result.totalPages,
-      albums: result.albums,
-    });
+    // Nếu album có ảnh và ảnh này ở Firebase, xóa ảnh khỏi Firebase
+    if (existingAlbum.image && existingAlbum.image.includes("firebase")) {
+      const oldImagePath = existingAlbum.image.split("/o/")[1].split("?")[0];
+      try {
+        await bucket.file(decodeURIComponent(oldImagePath)).delete();
+      } catch (error) {
+        console.error("Error deleting old image:", error);
+        // Ghi chú: Có thể không cần phải ngăn việc xóa album nếu không xóa được ảnh
+      }
+    }
+
+    // Xóa album khỏi database
+    await AlbumModel.deleteAlbum(id);
+    res.json({ message: 'Album deleted successfully' });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Có lỗi xảy ra", error: error.message });
+    console.error('Error deleting album:', error);
+    res.status(500).json({ message: 'Error deleting album', error: error.message });
   }
 };
+
+
+// Upload ảnh album
+const uploadAlbumImage = async (req, res) => {
+  try {
+    const { id } = req.params; // ID của album cần cập nhật ảnh
+
+    // Kiểm tra file tải lên
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Kiểm tra album có tồn tại không
+    const existingAlbum = await AlbumModel.getAlbumById(id);
+    if (!existingAlbum) {
+      return res.status(404).json({ message: 'Album not found' });
+    }
+
+    // Xử lý xóa ảnh cũ nếu có
+    if (existingAlbum.image && existingAlbum.image.includes("firebase")) {
+      const oldImagePath = existingAlbum.image.split("/o/")[1].split("?")[0];
+      try {
+        await bucket.file(decodeURIComponent(oldImagePath)).delete();
+      } catch (error) {
+        console.log("Error deleting old image:", error);
+        // Không return lỗi ở đây, tiếp tục upload ảnh mới
+      }
+    }
+
+    // Tạo tên file mới với albumId để tránh trùng lặp
+    const timestamp = Date.now();
+    const fileName = `albums/${id}_${timestamp}_${path.basename(req.file.originalname)}`;
+    const blob = bucket.file(fileName);
+
+    // Tạo stream để upload file
+    const blobStream = blob.createWriteStream({
+      metadata: {
+        contentType: req.file.mimetype,
+      },
+    });
+
+    // Xử lý lỗi trong quá trình upload
+    blobStream.on("error", (error) => {
+      console.error("Upload error:", error);
+      return res.status(500).json({ message: "Unable to upload image", error });
+    });
+
+    // Khi upload hoàn tất
+    blobStream.on("finish", async () => {
+      // Tạo URL công khai cho file
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+
+      // Cập nhật URL ảnh mới vào database
+      await AlbumModel.updateAlbumImage(id, publicUrl); // Giả sử bạn có hàm này trong AlbumModel
+
+      res.status(200).json({
+        message: "Album image uploaded successfully",
+        imageUrl: publicUrl,
+      });
+    });
+
+    // Ghi dữ liệu file vào stream
+    blobStream.end(req.file.buffer);
+  } catch (error) {
+    console.error("Error uploading album image:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+module.exports = { getAllAlbums, getAlbumById, createAlbum, updateAlbum, deleteAlbum, uploadAlbumImage };

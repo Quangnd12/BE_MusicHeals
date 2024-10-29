@@ -52,7 +52,7 @@ app.use("/api", adminRoutes);
 app.use("/api", artistRoutes);
 app.use("/api", followRoutes);
 app.use("/api/genres", genreRoutes);
-app.use("/api/", albumRoutes);
+app.use("/api/albums", albumRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/songs", songRoutes);
 

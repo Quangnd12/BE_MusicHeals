@@ -72,7 +72,7 @@ class AuthController {
       res.cookie("token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        maxAge:maxAge,
+        maxAge: maxAge,
       });
 
       res.status(200).json({ message: "Login successful", user, token, });

@@ -15,6 +15,7 @@ const genreRoutes = require("./src/routes/genreRoutes");
 const albumRoutes = require("./src/routes/albumRoutes");
 const favoriteRoutes = require("./src/routes/favoriteRoutes");
 const songRoutes = require("./src/routes/songRoutes");
+const topRankRoutes = require("./src/routes/topRankRoutes");
 const helmet = require("helmet");
 dotenv.config();
 
@@ -56,6 +57,7 @@ app.use("/api/genres", genreRoutes);
 app.use("/api/", albumRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/songs", songRoutes);
+app.use("/api/topranks", topRankRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

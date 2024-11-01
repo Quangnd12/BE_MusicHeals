@@ -49,6 +49,7 @@ class ArtistModel {
     const query = 'DELETE FROM artists WHERE id = ?';
     await db.execute(query, [id]);
   }
+  
 }
 
 module.exports = ArtistModel;

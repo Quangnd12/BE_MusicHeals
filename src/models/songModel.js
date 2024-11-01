@@ -73,7 +73,7 @@ class SongModel {
       releaseDate,
       is_explicit,
       listens_count = 0,
-  
+
     } = songData;
 
     // Kiểm tra xem bài hát đã tồn tại chưa
@@ -117,13 +117,13 @@ class SongModel {
       await Promise.all(genreQueries);
     }
   }
-  
+
   static async deleteSongAssociations(songId) {
     await db.execute('DELETE FROM song_artists WHERE songID = ?', [songId]);
     await db.execute('DELETE FROM song_albums WHERE songID = ?', [songId]);
     await db.execute('DELETE FROM song_genres WHERE songID = ?', [songId]);
   }
-  
+
 
   static async updateSong(id, songData) {
     const {
@@ -160,13 +160,40 @@ class SongModel {
     await this.insertGenres(id, genreIDs);
 
     return { message: "Song updated successfully" };
-}
+  }
 
 
   static async deleteSong(id) {
     await this.deleteSongAssociations(id);
-    await db.execute('DELETE FROM songs WHERE id = ?',[id]);
+    await db.execute('DELETE FROM songs WHERE id = ?', [id]);
   }
+
+  static async getSongsByDuration(minDuration, maxDuration) {
+    const query = `
+      SELECT 
+        songs.id,
+        songs.title,
+        songs.image,
+        songs.duration,
+        GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+        GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre
+      FROM songs
+      LEFT JOIN song_artists ON songs.id = song_artists.songId
+      LEFT JOIN artists ON song_artists.artistId = artists.id
+      LEFT JOIN song_genres ON songs.id = song_genres.songID
+      LEFT JOIN genres ON song_genres.genreID = genres.id
+      WHERE songs.duration BETWEEN ? AND ?
+      GROUP BY songs.id
+      ORDER BY songs.duration ASC
+    `;
+    
+    const [rows] = await db.execute(query, [minDuration, maxDuration]);
+    return rows;
+  }
+
+  
+
 }
+
 
 module.exports = SongModel;

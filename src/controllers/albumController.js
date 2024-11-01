@@ -2,10 +2,20 @@ const AlbumModel = require('../models/albumModel');
 const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
 const getAllAlbums = async (req, res) => {
+  const page = parseInt(req.query.page) || 1; 
+  const limit = parseInt(req.query.limit) || 10; 
+
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
+
   try {
-    const albums = await AlbumModel.getAllAlbums(); 
-    res.json(albums);
+    const albums = await AlbumModel.getAllAlbums(page, limit);
+    const totalCount = await AlbumModel.getAlbumCount(); 
+    const totalPages = Math.ceil(totalCount / limit); 
+    res.json({albums, totalPages });
   } catch (error) {
+    console.error(error); 
     res.status(500).json({ message: 'Error retrieving albums', error: error.message });
   }
 };

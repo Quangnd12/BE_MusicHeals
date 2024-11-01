@@ -5,10 +5,20 @@ const ArtistModel = require('../models/artistModel');
 const {uploadToStorage}=require("../middlewares/uploadMiddleware");
 
 const getAllSongs = async (req, res) => {
+  const page = parseInt(req.query.page) || 1; 
+  const limit = parseInt(req.query.limit) || 10; 
+
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
+
   try {
-    const songs = await SongModel.getAllSongs(); // Sửa tên hàm
-    res.json(songs);
+    const songs = await SongModel.getAllSongs(page, limit);
+    const totalCount = await SongModel.getSongCount(); 
+    const totalPages = Math.ceil(totalCount / limit); 
+    res.json({songs, totalPages });
   } catch (error) {
+    console.error(error); 
     res.status(500).json({ message: 'Error retrieving songs', error: error.message });
   }
 };
@@ -82,69 +92,78 @@ const createSong = async (req, res) => {
   }
 };
 
-
 const updateSong = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Lấy thông tin bài hát hiện tại
     const existingSong = await SongModel.getSongById(id);
     if (!existingSong) {
       return res.status(404).json({ message: 'Song not found' });
     }
 
-    // Dữ liệu bài hát cần cập nhật
+    const {
+      title,
+      artistID,
+      albumID,
+      genreID,
+      lyrics,
+      duration,
+      releaseDate,
+      is_explicit,
+    } = req.body;
+
+    // Tạo đối tượng mới với dữ liệu cập nhật
     const updatedSong = {
-      title: req.body.title || existingSong.title,
-      lyrics: req.body.lyrics || existingSong.lyrics,
-      duration: req.body.duration || existingSong.duration,
-      listens_count: req.body.listens_count !== undefined ? req.body.listens_count : existingSong.listens_count,
-      releaseDate: req.body.releaseDate || existingSong.releaseDate,
-      is_explicit: req.body.is_explicit !== undefined ? req.body.is_explicit : existingSong.is_explicit,
+      title: title !== undefined ? title : existingSong.title,
+      lyrics: lyrics !== undefined ? lyrics : existingSong.lyrics,
+      duration: duration !== undefined ? duration : existingSong.duration,
+      releaseDate: releaseDate !== undefined ? releaseDate : existingSong.releaseDate,
+      is_explicit: is_explicit !== undefined ? is_explicit : existingSong.is_explicit,
+      listens_count: existingSong.listens_count, // Giữ nguyên số lần nghe
+      image: existingSong.image, // Giữ nguyên hình ảnh cũ
+      file_song: existingSong.file_song // Giữ nguyên file nhạc cũ
     };
 
-    // Xử lý upload hình ảnh mới nếu có
-    if (req.files && req.files.image && req.files.image.length > 0) {
-      const imageFile = req.files.image[0];
-      const imagePublicUrl = await uploadToStorage(imageFile, 'songs/images');
-      updatedSong.image = imagePublicUrl;
-    } else {
-      updatedSong.image = existingSong.image;
+    // Xử lý upload hình ảnh nếu có
+    if (req.files) {
+      if (req.files.image && req.files.image.length > 0) {
+        const imageFile = req.files.image[0];
+        const imagePublicUrl = await uploadToStorage(imageFile, 'songs/images');
+        updatedSong.image = imagePublicUrl;
+      }
+      if (req.files.file_song && req.files.file_song.length > 0) {
+        const audioFile = req.files.file_song[0];
+        const audioPublicUrl = await uploadToStorage(audioFile, 'songs/audio');
+        updatedSong.file_song = audioPublicUrl;
+      }
     }
 
-    // Xử lý upload file nhạc mới nếu có
-    if (req.files && req.files.file_song && req.files.file_song.length > 0) {
-      const audioFile = req.files.file_song[0];
-      const audioPublicUrl = await uploadToStorage(audioFile, 'songs/audio');
-      updatedSong.file_song = audioPublicUrl;
-    } else {
-      updatedSong.file_song = existingSong.file_song;
-    }
-
-    // Cập nhật bài hát trong database
+    // Cập nhật nghệ sĩ
     await SongModel.updateSong(id, updatedSong);
 
-    const existingArtists = await ArtistModel.getArtistById(id);
-    const existingAlbums = await AlbumModel.getAlbumById(id);
-    const existingGenres = await GenreModel.getGenreById(id);
+    // Cập nhật các quan hệ nếu có ID mới
+    if (artistID) {
+      const artistIDs = Array.isArray(artistID) ? artistID : [artistID];
+      await SongModel.insertArtists(id, artistIDs);
+    }
 
-    // Lấy ID của nghệ sĩ, album và thể loại từ yêu cầu
-    const artistIDs = Array.isArray(req.body.artistID) ? req.body.artistID : [req.body.artistID];
-    const albumIDs = Array.isArray(req.body.albumID) ? req.body.albumID : [req.body.albumID];
-    const genreIDs = Array.isArray(req.body.genreID) ? req.body.genreID : [req.body.genreID];
+    if (albumID) {
+      const albumIDs = Array.isArray(albumID) ? albumID : [albumID];
+      await SongModel.insertAlbums(id, albumIDs);
+    }
 
-    // Xóa các mối quan hệ cũ
-    await SongModel.deleteSongAssociations(id);
-
-    // Thêm các mối quan hệ mới hoặc giữ nguyên nếu không có cập nhật
-    await SongModel.insertArtists(id, artistIDs.length > 0 ? artistIDs : existingArtists);
-    await SongModel.insertAlbums(id, albumIDs.length > 0 ? albumIDs : existingAlbums);
-    await SongModel.insertGenres(id, genreIDs.length > 0 ? genreIDs : existingGenres);
-
-    res.json({ message: 'Song updated successfully', updatedSong });
+    if (genreID) {
+      const genreIDs = Array.isArray(genreID) ? genreID : [genreID];
+      await SongModel.insertGenres(id, genreIDs);
+    }
+    res.status(200).json({ id, ...updatedSong });
   } catch (error) {
-    console.error("Error updating song:", error);
-    res.status(500).json({ message: "Error updating song", error: error.message });
+    console.error('Error updating song:', error);
+    res.status(500).json({ message: 'Error updating song', error: error.message });
   }
 };
+
 
 // Xóa bài hát theo ID
 const deleteSong = async (req, res) => {

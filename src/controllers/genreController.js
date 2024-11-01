@@ -1,11 +1,21 @@
-const GenreModel = require('../models/genreModel'); // Sửa tên model thành genreModel
+const GenreModel = require('../models/genreModel');
 
 // Lấy tất cả các thể loại
 const getAllGenres = async (req, res) => {
+  const page = parseInt(req.query.page) || 1; 
+  const limit = parseInt(req.query.limit) || 10; 
+
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
+
   try {
-    const genres = await GenreModel.getAllGenres(); // Sửa tên hàm
-    res.json(genres);
+    const genres = await GenreModel.getAllGenres(page, limit);
+    const totalCount = await GenreModel.getGenreCount(); 
+    const totalPages = Math.ceil(totalCount / limit); 
+    res.json({genres, totalPages });
   } catch (error) {
+    console.error(error); 
     res.status(500).json({ message: 'Error retrieving genres', error: error.message });
   }
 };

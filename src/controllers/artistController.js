@@ -2,10 +2,20 @@ const ArtistModel = require('../models/artistModel');
 const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
 const getAllArtists = async (req, res) => {
+  const page = parseInt(req.query.page) || 1; 
+  const limit = parseInt(req.query.limit) || 10; 
+
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
+
   try {
-    const artists = await ArtistModel.getAllArtist(); // Sửa tên hàm
-    res.json(artists);
+    const artists = await ArtistModel.getAllArtist(page, limit);
+    const totalCount = await ArtistModel.getArtistCount(); 
+    const totalPages = Math.ceil(totalCount / limit); 
+    res.json({artists, totalPages });
   } catch (error) {
+    console.error(error); 
     res.status(500).json({ message: 'Error retrieving artists', error: error.message });
   }
 };

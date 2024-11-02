@@ -1,34 +1,46 @@
 const db = require('../config/db');
+const lyricsFinder = require('lyrics-finder');
 
 class SongModel {
 
-  static async getAllSongs() {
+  static async getAllSongs(page = 1, limit = 10) {
+    const offset = (page - 1) * limit; 
     const query = `SELECT 
-    songs.id,
-    songs.title,
-    songs.image,
-    songs.file_song,
-    songs.lyrics,
-    songs.duration,
-    songs.listens_count,
-    songs.releaseDate,
-    songs.is_explicit,
-    GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
-    GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
-    GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
-    GROUP_CONCAT(DISTINCT countries.name SEPARATOR ', ') AS country
-  FROM songs
-  LEFT JOIN song_artists ON songs.id = song_artists.songId
-  LEFT JOIN artists ON song_artists.artistId = artists.id
-  LEFT JOIN song_albums ON songs.id = song_albums.songID
-  LEFT JOIN albums ON song_albums.albumID = albums.id
-  LEFT JOIN song_genres ON songs.id = song_genres.songID
-  LEFT JOIN genres ON song_genres.genreID = genres.id
-  LEFT JOIN countries ON genres.countryID = countries.id
-  GROUP BY songs.id`;
-    const [rows] = await db.execute(query);
+      songs.id,
+      songs.title,
+      songs.image,
+      songs.file_song,
+      songs.lyrics,
+      songs.duration,
+      songs.listens_count,
+      songs.releaseDate,
+      songs.is_explicit,
+      GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+      GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
+      GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
+      GROUP_CONCAT(DISTINCT countries.name SEPARATOR ', ') AS country
+    FROM songs
+    LEFT JOIN song_artists ON songs.id = song_artists.songId
+    LEFT JOIN artists ON song_artists.artistId = artists.id
+    LEFT JOIN song_albums ON songs.id = song_albums.songID
+    LEFT JOIN albums ON song_albums.albumID = albums.id
+    LEFT JOIN song_genres ON songs.id = song_genres.songID
+    LEFT JOIN genres ON song_genres.genreID = genres.id
+    LEFT JOIN countries ON genres.countryID = countries.id
+    GROUP BY songs.id
+    LIMIT ${limit} OFFSET ${offset}`; 
+
+    const [rows] = await db.execute(query); 
     return rows;
+}
+
+  
+  static async getSongCount() {
+    const query = 'SELECT COUNT(*) as count FROM songs';
+    const [rows] = await db.execute(query);
+    return rows[0].count;
   }
+  
 
   static async getSongById(id) {
     const query = `SELECT 
@@ -68,7 +80,6 @@ class SongModel {
       artistID,
       albumID,
       genreID,
-      lyrics,
       duration,
       releaseDate,
       is_explicit,
@@ -76,14 +87,13 @@ class SongModel {
 
     } = songData;
 
-    // Kiểm tra xem bài hát đã tồn tại chưa
     const checkQuery = 'SELECT * FROM songs WHERE title = ?';
     const [checkRows] = await db.execute(checkQuery, [title]);
 
     if (checkRows.length > 0) {
       throw new Error('Song with this title already exists');
     }
-
+    const lyrics = await lyricsFinder(artistID, title) || "Not Found!";
     // Thêm bài hát vào bảng songs
     const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
     const [result] = await db.execute(query, [title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit]);
@@ -124,6 +134,31 @@ class SongModel {
     await db.execute('DELETE FROM song_genres WHERE songID = ?', [songId]);
   }
 
+  static async deleteAlbumAssociations(songId) {
+    await db.execute('DELETE FROM song_albums WHERE songID = ?', [songId]);
+  }
+
+  static async deleteArtistAssociations(songId) {
+    await db.execute('DELETE FROM song_artists WHERE songID = ?', [songId]);
+  }
+
+  static async deleteGenreAssociations(songId) {
+    await db.execute('DELETE FROM song_genres WHERE songID = ?', [songId]);
+  }
+
+  static async getArtistAssociations(songId) {
+    const [rows] = await db.execute('SELECT * FROM song_artists WHERE songID = ?', [songId]);
+    return rows;
+  }
+  static async getAlbumAssociations(songId) {
+    const [rows] = await db.execute('SELECT * FROM song_albums WHERE songID = ?', [songId]);
+    return rows;
+  }
+  static async getGenreAssociations(songId) {
+    const [rows] = await db.execute('SELECT * FROM song_genres WHERE songID = ?', [songId]);
+    return rows;
+  }
+
 
   static async updateSong(id, songData) {
     const {
@@ -135,29 +170,49 @@ class SongModel {
       listens_count,
       releaseDate,
       is_explicit,
-      artistIDs,
-      albumIDs,
-      genreIDs
+      artistID,
+      albumID,
+      genreID
     } = songData;
 
     // Kiểm tra nếu bài hát với tiêu đề tương tự đã tồn tại
-    const existingSong = await db.execute('SELECT * FROM songs WHERE title = ? AND id != ?', [title, id]);
-    if (existingSong[0].length > 0) {
-      throw new Error('A song with this title already exists');
+    const existingSongQuery = 'SELECT * FROM songs WHERE id = ?';
+    const [existingSong] = await db.execute(existingSongQuery, [id]);
+    if (existingSong.length === 0) {
+      throw new Error('Song not found');
     }
 
-    // Cập nhật thông tin bài hát
+    if (title && existingSong[0].title !== title) {
+      const checkTitleQuery = 'SELECT * FROM songs WHERE title = ? AND id != ?';
+      const [checkTitle] = await db.execute(checkTitleQuery, [title, id]);
+      if (checkTitle.length > 0) {
+        throw new Error('A song with this title already exists');
+      }
+    }
+
+    // Cập nhật thông tin bài hát, giữ nguyên file cũ nếu không có file mới
+    const updatedImage = image || existingSong[0].image;
+    const updatedFileSong = file_song || existingSong[0].file_song;
     const query = `UPDATE songs 
                    SET title = ?, image = ?, file_song = ?, lyrics = ?, duration = ?, listens_count = ?, releaseDate = ?, is_explicit = ? 
                    WHERE id = ?`;
-    await db.execute(query, [title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit, id]);
+    await db.execute(query, [title, updatedImage, updatedFileSong, lyrics, duration, listens_count, releaseDate, is_explicit, id]);
 
-    await this.deleteSongAssociations(id);
+    // Cập nhật các quan hệ nếu có ID mới
+    if (artistID && artistID.length > 0) {
+      await this.deleteArtistAssociations(id);
+      await this.insertArtists(id, artistID);
+    }
 
-    // Thêm lại các mối quan hệ mới
-    await this.insertArtists(id, artistIDs);
-    await this.insertAlbums(id, albumIDs);
-    await this.insertGenres(id, genreIDs);
+    if (albumID && albumID.length > 0) {
+      await this.deleteAlbumAssociations(id);
+      await this.insertAlbums(id, albumID);
+    }
+
+    if (genreID && genreID.length > 0) {
+      await this.deleteGenreAssociations(id);
+      await this.insertGenres(id, genreID);
+    }
 
     return { message: "Song updated successfully" };
   }

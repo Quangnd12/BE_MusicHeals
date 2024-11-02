@@ -2,10 +2,17 @@ const db = require('../config/db');
 
 class GenreModel {
 
-  static async getAllGenres() {
-    const query = 'SELECT * FROM genres';
+  static async getAllGenres(page = 1, limit = 10) {
+    const offset = (page - 1) * limit;
+    const query = `SELECT * FROM genres LIMIT ${limit} OFFSET ${offset}`;
     const [rows] = await db.execute(query);
     return rows;
+  }
+
+  static async getGenreCount() {
+    const query = 'SELECT COUNT(*) as count FROM genres';
+    const [rows] = await db.execute(query);
+    return rows[0].count;
   }
 
   static async getGenreById(id) {

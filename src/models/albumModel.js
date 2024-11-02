@@ -2,10 +2,17 @@ const db = require('../config/db');
 
 class AlbumModel {
 
-  static async getAllAlbums() {
-    const query = 'SELECT * FROM albums';
+  static async getAllAlbums(page = 1, limit = 10) {
+    const offset = (page - 1) * limit;
+    const query = `SELECT * FROM albums LIMIT ${limit} OFFSET ${offset}`;
     const [rows] = await db.execute(query);
     return rows;
+  }
+
+  static async getAlbumCount() {
+    const query = 'SELECT COUNT(*) as count FROM albums';
+    const [rows] = await db.execute(query);
+    return rows[0].count;
   }
 
   static async getAlbumById(id) {

@@ -7,13 +7,19 @@ const VALID_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
 const VALID_AUDIO_TYPES = ['audio/mpeg', 'audio/wav'];
 
 const FOLDERS = [
- 'songs/images',
- 'artists/images',
- 'albums/images',
- 'genres/images'
-]
+  'songs/images',
+  'artists/images',
+  'albums/images',
+  'genres/images'
+];
+
+const checkFileExists = async (fileName, folder) => {
+  const [files] = await bucket.getFiles({ directory: folder });
+  return files.some(file => file.name === fileName); // Kiểm tra xem tệp có tồn tại dựa trên tên
+};
 
 const uploadToStorage = async (file, folder) => {
+  // Kiểm tra định dạng và kích thước tệp
   if (FOLDERS.includes(folder)) {
     if (!VALID_IMAGE_TYPES.includes(file.mimetype)) {
       throw new Error('Invalid image format. Only JPEG, PNG, and GIF are allowed.');
@@ -30,7 +36,16 @@ const uploadToStorage = async (file, folder) => {
     }
   }
 
-  const fileName = `${folder}/${Date.now()}_${file.originalname}`;
+  // Tên tệp sẽ là tên gốc của tệp
+  const fileName = `${folder}/${file.originalname}`;
+  const fileExists = await checkFileExists(fileName, folder);
+
+  // Nếu tệp đã tồn tại, trả về URL của tệp đã có
+  if (fileExists) {
+    return `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+  }
+
+  // Nếu tệp không tồn tại, tiến hành tải lên
   const fileBlob = bucket.file(fileName);
 
   return new Promise((resolve, reject) => {

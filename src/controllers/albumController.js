@@ -1,9 +1,10 @@
-const AlbumModel = require('../models/albumModel'); 
+// albumController.js
+const AlbumModel = require('../models/albumModel');
 const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
 const getAllAlbums = async (req, res) => {
-  const page = parseInt(req.query.page) || 1; 
-  const limit = parseInt(req.query.limit) || 10; 
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
 
   if (page < 1 || limit < 1) {
     return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
@@ -11,11 +12,11 @@ const getAllAlbums = async (req, res) => {
 
   try {
     const albums = await AlbumModel.getAllAlbums(page, limit);
-    const totalCount = await AlbumModel.getAlbumCount(); 
-    const totalPages = Math.ceil(totalCount / limit); 
-    res.json({albums, totalPages });
+    const totalCount = await AlbumModel.getAlbumCount();
+    const totalPages = Math.ceil(totalCount / limit);
+    res.json({ albums, totalPages });
   } catch (error) {
-    console.error(error); 
+    console.error(error);
     res.status(500).json({ message: 'Error retrieving albums', error: error.message });
   }
 };
@@ -45,9 +46,9 @@ const createAlbum = async (req, res) => {
     const newAlbum = { title, artistID, releaseDate };
 
     if (req.file) {
-      const imageFile = req.file; 
+      const imageFile = req.file;
       const imagePublicUrl = await uploadToStorage(imageFile, 'albums/images');
-      newAlbum.image = imagePublicUrl; 
+      newAlbum.image = imagePublicUrl;
     }
 
     const albumId = await AlbumModel.createAlbum(newAlbum);
@@ -66,34 +67,33 @@ const updateAlbum = async (req, res) => {
   try {
     const { id } = req.params;
     const existingAlbum = await AlbumModel.getAlbumById(id);
-    
+
     if (!existingAlbum) {
       return res.status(404).json({ message: 'Album not found' });
     }
 
     const updatedAlbum = {
       title: req.body.title || existingAlbum.title,
-      image: existingAlbum.image, 
+      image: existingAlbum.image,
       artistID: req.body.artistID || existingAlbum.artistID,
       releaseDate: req.body.releaseDate || existingAlbum.releaseDate,
     };
 
     if (req.file) {
-      const imageFile = req.file; 
+      const imageFile = req.file;
       const imagePublicUrl = await uploadToStorage(imageFile, 'albums/images');
-      updatedAlbum.image = imagePublicUrl; 
+      updatedAlbum.image = imagePublicUrl;
     }
 
     await AlbumModel.updateAlbum(id, updatedAlbum);
     res.status(200).json({ message: "Album updated successfully", album: updatedAlbum });
-    
+
   } catch (error) {
     console.error("Error updating album:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// Xóa album theo ID
 const deleteAlbum = async (req, res) => {
   try {
     const { id } = req.params;
@@ -101,15 +101,6 @@ const deleteAlbum = async (req, res) => {
     const existingAlbum = await AlbumModel.getAlbumById(id);
     if (!existingAlbum) {
       return res.status(404).json({ message: 'Album not found' });
-    }
-
-    if (existingAlbum.image && existingAlbum.image.includes("firebase")) {
-      const oldImagePath = existingAlbum.image.split("/o/")[1].split("?")[0];
-      try {
-        await bucket.file(decodeURIComponent(oldImagePath)).delete();
-      } catch (error) {
-        console.error("Error deleting old image:", error);
-      }
     }
 
     await AlbumModel.deleteAlbum(id);
@@ -120,4 +111,36 @@ const deleteAlbum = async (req, res) => {
   }
 };
 
-module.exports = { getAllAlbums, getAlbumById, createAlbum, updateAlbum, deleteAlbum };
+
+const searchAlbums = async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) {
+      return res.status(400).json({ message: 'Search term is required' });
+    }
+    const albums = await AlbumModel.searchAlbumsByTitle(q);
+    res.json(albums);
+  } catch (error) {
+    res.status(500).json({ message: 'Error searching albums', error: error.message });
+  }
+};
+
+
+const getThisMonthAlbums = async (req, res) => {
+  try {
+    const albums = await AlbumModel.getThisMonthAlbums();
+    res.json(albums);
+  } catch (error) {
+    res.status(500).json({ message: 'Error getting this month albums', error: error.message });
+  }
+};
+
+module.exports = {
+  getAllAlbums,
+  getAlbumById,
+  createAlbum,
+  updateAlbum,
+  deleteAlbum,
+  searchAlbums,        
+  getThisMonthAlbums
+};

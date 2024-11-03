@@ -10,7 +10,8 @@ const FOLDERS = [
   'songs/images',
   'artists/images',
   'albums/images',
-  'genres/images'
+  'genres/images',
+  'countries/images'
 ];
 
 const checkFileExists = async (fileName, folder) => {

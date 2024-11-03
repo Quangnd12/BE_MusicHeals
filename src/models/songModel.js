@@ -4,7 +4,7 @@ const lyricsFinder = require('lyrics-finder');
 class SongModel {
 
   static async getAllSongs(page = 1, limit = 10) {
-    const offset = (page - 1) * limit; 
+    const offset = (page - 1) * limit;
     const query = `SELECT 
       songs.id,
       songs.title,
@@ -28,19 +28,19 @@ class SongModel {
     LEFT JOIN genres ON song_genres.genreID = genres.id
     LEFT JOIN countries ON genres.countryID = countries.id
     GROUP BY songs.id
-    LIMIT ${limit} OFFSET ${offset}`; 
+    LIMIT ${limit} OFFSET ${offset}`;
 
-    const [rows] = await db.execute(query); 
+    const [rows] = await db.execute(query);
     return rows;
-}
+  }
 
-  
+
   static async getSongCount() {
     const query = 'SELECT COUNT(*) as count FROM songs';
     const [rows] = await db.execute(query);
     return rows[0].count;
   }
-  
+
 
   static async getSongById(id) {
     const query = `SELECT 
@@ -241,12 +241,53 @@ class SongModel {
       GROUP BY songs.id
       ORDER BY songs.duration ASC
     `;
-    
+
     const [rows] = await db.execute(query, [minDuration, maxDuration]);
     return rows;
   }
 
-  
+  static async getSongsByMood(mood) {
+    // Map mood với các thể loại nhạc tương ứng
+    const moodGenreMap = {
+      'happy': ['Pop', 'Dance', 'Electronic', 'Disco'],
+      'sad': ['Ballad', 'Blues', 'Jazz', 'Soul'],
+      'energetic': ['Rock', 'Hip Hop', 'EDM', 'Metal'],
+      'relaxed': ['Acoustic', 'Classical', 'Ambient', 'Folk'],
+      'romantic': ['R&B', 'Love Songs', 'Jazz', 'Soul']
+    };
+
+    const genres = moodGenreMap[mood.toLowerCase()];
+    if (!genres) {
+      throw new Error('Invalid mood. Available moods: happy, sad, energetic, relaxed, romantic');
+    }
+
+    const query = `
+      SELECT DISTINCT
+        songs.id,
+        songs.title,
+        songs.image,
+        songs.duration,
+        songs.file_song,
+        songs.releaseDate,
+        GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+        GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
+        GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album
+      FROM songs
+      LEFT JOIN song_artists ON songs.id = song_artists.songId
+      LEFT JOIN artists ON song_artists.artistId = artists.id
+      LEFT JOIN song_genres ON songs.id = song_genres.songID
+      LEFT JOIN genres ON song_genres.genreID = genres.id
+      LEFT JOIN song_albums ON songs.id = song_albums.songID
+      LEFT JOIN albums ON song_albums.albumID = albums.id
+      WHERE genres.name IN (${genres.map(() => '?').join(',')})
+      GROUP BY songs.id
+      ORDER BY RAND()
+      LIMIT 20
+    `;
+
+    const [rows] = await db.execute(query, genres);
+    return rows;
+  }
 
 }
 

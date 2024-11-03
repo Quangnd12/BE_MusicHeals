@@ -79,6 +79,8 @@ class AlbumModel {
     const [rows] = await db.execute(query);
     return rows;
   }
+
+  
 }
 
 module.exports = AlbumModel;

@@ -98,11 +98,27 @@ const deleteAlbum = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Kiểm tra album tồn tại
     const existingAlbum = await AlbumModel.getAlbumById(id);
     if (!existingAlbum) {
       return res.status(404).json({ message: 'Album not found' });
     }
 
+    // Kiểm tra xem album có hình ảnh hay không và nếu có thì tiến hành xóa
+    if (existingAlbum.coverImage) {
+      // Tạo đường dẫn tệp từ URL
+      const oldImagePath = existingAlbum.coverImage.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
+      try {
+        // Xóa hình ảnh từ Firebase Storage
+        await bucket.file(oldImagePath).delete();
+        console.log("Album cover image deleted successfully.");
+      } catch (error) {
+        console.error("Error deleting album cover image:", error);
+        return res.status(500).json({ message: 'Error deleting album cover image', error: error.message });
+      }
+    }
+
+    // Xóa album khỏi cơ sở dữ liệu
     await AlbumModel.deleteAlbum(id);
     res.json({ message: 'Album deleted successfully' });
   } catch (error) {
@@ -110,6 +126,7 @@ const deleteAlbum = async (req, res) => {
     res.status(500).json({ message: 'Error deleting album', error: error.message });
   }
 };
+
 
 
 const searchAlbums = async (req, res) => {
@@ -135,12 +152,13 @@ const getThisMonthAlbums = async (req, res) => {
   }
 };
 
+
 module.exports = {
   getAllAlbums,
   getAlbumById,
   createAlbum,
   updateAlbum,
   deleteAlbum,
-  searchAlbums,        
+  searchAlbums,
   getThisMonthAlbums
 };

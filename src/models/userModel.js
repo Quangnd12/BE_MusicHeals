@@ -34,14 +34,21 @@ class UserModel {
     return result.insertId;
   }
 
-  static async getPaginatedUsers(page = 1) {
-    const limit = 5; // Số lượng bản ghi mỗi trang
-    const offset = (page - 1) * limit;
+  static async createUserWithGoogle(userData) {
+    const { username = null, email, avatar = null, role } = userData;
 
-    const query = "SELECT * FROM users LIMIT ? OFFSET ?";
-    const [rows] = await db.execute(query, [limit, offset]);
+    // Kiểm tra xem email đã được sử dụng chưa
+    const emailUsed = await UserModel.isEmailUsed(email);
+    if (emailUsed) {
+      throw new Error("Email đã được sử dụng"); // Ném ra lỗi nếu email đã tồn tại
+    }
 
-    return rows;
+    // Tạo người dùng mới mà không cần mật khẩu
+    const query =
+      "INSERT INTO users (username, password, role, email, avatar) VALUES (?, NULL, ?, ?, ?)";
+    const [result] = await db.execute(query, [username, role, email, avatar]);
+
+    return result.insertId;
   }
 
   static async getTotalUsersCount() {
@@ -56,42 +63,98 @@ class UserModel {
     return rows[0];
   }
 
-  static async getAllUsers() {
-    const query = "SELECT * FROM users";
-    const [rows] = await db.execute(query);
-    return rows;
+  static async getAllUsers({
+    page = 1, // bắt đầu từ 1 cho dễ sử dụng
+    limit = 5,
+    search = "",
+    sort = "username", // Đảm bảo cột mặc định tồn tại trong bảng
+    order = "ASC",
+  }) {
+    try {
+      let query = "SELECT * FROM users";
+      let countQuery = "SELECT COUNT(*) as total FROM users";
+      const params = [];
+
+      // Thêm điều kiện tìm kiếm nếu có search term
+      if (search) {
+        const searchCondition = " WHERE username LIKE ? OR email LIKE ?";
+        query += searchCondition;
+        countQuery += searchCondition;
+        params.push(`%${search}%`, `%${search}%`);
+      }
+
+      // Thêm sắp xếp
+      query += ` ORDER BY ${sort} ${order}`;
+
+      // Lấy tổng số lượng cho phân trang
+      const [countResult] = await db.execute(countQuery, params);
+      const total = countResult[0].total;
+
+      // Áp dụng phân trang nếu page > 0
+      if (page > 0) {
+        const offset = (page - 1) * limit;
+        query += ` LIMIT ${limit} OFFSET ${offset}`; // Truyền trực tiếp LIMIT và OFFSET vào query
+      }
+
+      // Thực thi câu truy vấn
+      const [users] = await db.execute(query, params);
+
+      // Trả về dữ liệu
+      return {
+        users,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+        limit,
+      };
+    } catch (error) {
+      console.error("Database error:", error);
+      console.error("Error stack:", error.stack); // In chi tiết lỗi
+      throw new Error("Error retrieving users from database");
+    }
   }
 
   static async getUserByEmail(email) {
+    if (email === undefined) throw new Error("Email không được để trống");
     const query = "SELECT * FROM users WHERE email = ?";
     const [rows] = await db.execute(query, [email]);
-    return rows[0]; // Trả về người dùng đầu tiên tìm thấy
+    return rows[0];
   }
 
+  // userModel.js
   static async updateUser(id, userData) {
     const {
       username = null,
       password = null,
       birthday = null,
       avatar = null,
-  } = userData;
+      updatedAt = null, // Nhận updatedAt từ userData
+    } = userData;
 
-    // Kiểm tra nếu có mật khẩu mới thì mã hóa mật khẩu, nếu không giữ nguyên
     const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
-    const query =
-      "UPDATE users SET username = ?, password = COALESCE(?, password), birthday = ?, avatar = ?,  updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
+    const query = `
+      UPDATE users 
+      SET username = ?, 
+          password = COALESCE(?, password), 
+          birthday = ?, 
+          avatar = ?, 
+          updatedAt = ? 
+      WHERE id = ?`;
+
     await db.execute(query, [
       username,
-      hashedPassword, // Sử dụng mật khẩu đã mã hóa (nếu có)
+      hashedPassword,
       birthday,
       avatar,
+      updatedAt, // Truyền updatedAt vào SQL
       id,
     ]);
   }
 
   static async updateUserAvatar(userId, avatarUrl) {
-    const query = "UPDATE users SET avatar = ?, updatedAt = CURRENT_TIMESTAMP  WHERE id = ?";
+    const query =
+      "UPDATE users SET avatar = ?, updatedAt = CURRENT_TIMESTAMP  WHERE id = ?";
     await db.execute(query, [avatarUrl, userId]);
   }
 
@@ -125,7 +188,8 @@ class UserModel {
   }
 
   static async updatePassword(id, hashedPassword) {
-    const query = "UPDATE users SET password = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
+    const query =
+      "UPDATE users SET password = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
     await db.execute(query, [hashedPassword, id]);
   }
 

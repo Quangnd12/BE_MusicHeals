@@ -12,8 +12,6 @@ const db = require("./src/config/db"); // Import file cấu hình MySQL
 const authRoutes = require("./src/routes/authRoutes");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./src/config/swagger");
-const userRoutes = require("./src/routes/userRoutes");
-const adminRoutes = require("./src/routes/adminRoutes");
 const artistRoutes = require("./src/routes/artistRoutes");
 const followRoutes = require("./src/routes/followsRoutes");
 const genreRoutes = require("./src/routes/genreRoutes");
@@ -23,6 +21,12 @@ const songRoutes = require("./src/routes/songRoutes");
 const errorHandlerMiddleware = require("./src/middlewares/errorHandler");
 
 const app = express();
+
+app.use(bodyParser.json());
+
+// Sử dụng middleware để xử lý JSON và form-data
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Cấu hình bảo mật HTTP headers
 app.use(helmet());
@@ -39,7 +43,7 @@ app.use(
 app.use(morgan("dev"));
 
 // Body parser để parse request body JSON
-app.use(bodyParser.json()); // Để parse JSON body
+// app.use(bodyParser.json()); // Để parse JSON body
 app.use(cookieParser())
 
 // Swagger Documentation
@@ -47,8 +51,6 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api", adminRoutes);
 app.use("/api", artistRoutes);
 app.use("/api", followRoutes);
 app.use("/api/genres", genreRoutes);

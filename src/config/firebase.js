@@ -1,9 +1,9 @@
 const admin = require('firebase-admin');
-const serviceAccount = require('../../be-musicheals-firebase-adminsdk-5h4p2-1c181418a5.json');
+const serviceAccount = require('../../be-musicheals-a6d7a-firebase-adminsdk-epim6-22f72c72a2.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  storageBucket: "gs://be-musicheals.appspot.com" // Your storage bucket
+  storageBucket: "gs://be-musicheals-a6d7a.appspot.com" // Your storage bucket
 });
 
 // Initialize Firestore and Storage

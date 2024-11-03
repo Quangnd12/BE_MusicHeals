@@ -6,6 +6,7 @@ const { admin } = require("../config/firebase");
 const sendEmail = require("../utils/sendEmail");
 const { bucket } = require("../config/firebase");
 const { format } = require("util");
+const jwt = require("jsonwebtoken");
 const path = require("path");
 
 class AuthController {
@@ -47,8 +48,51 @@ class AuthController {
     }
   }
 
+  static async createUserWithGoogle(req, res) {
+    try {
+      const { username, email, avatar, role = "user" } = req.body;
+
+      // Kiểm tra xem thông tin cần thiết đã được cung cấp chưa
+      if (!email) {
+        return res.status(400).json({ message: "Email là bắt buộc" });
+      }
+
+      // Tạo người dùng mới thông qua Google
+      const userId = await UserModel.createUserWithGoogle({
+        username,
+        email,
+        avatar,
+        role,
+      });
+
+      // Tạo JWT token cho người dùng mới
+      const token = jwt.sign(
+        { id: userId, email, role },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: process.env.JWT_EXPIRE,
+        }
+      );
+
+      res.status(201).json({
+        message: "Đăng ký thành công",
+        token,
+        user: {
+          id: userId,
+          username,
+          email,
+          avatar,
+          role,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+
   static async login(req, res) {
     const { email, password, rememberMe } = req.body;
+    console.log("Request body:", req.body);
     try {
       console.log("Attempting to log in with email:", email);
 
@@ -75,7 +119,7 @@ class AuthController {
         maxAge: maxAge,
       });
 
-      res.status(200).json({ message: "Login successful", user, token, });
+      res.status(200).json({ message: "Login successful", user, token });
     } catch (error) {
       console.error("Error during login:", error); // In ra lỗi để debug
       res.status(500).json({ message: "Server error", error });
@@ -91,15 +135,15 @@ class AuthController {
   static async updateUser(req, res) {
     const { id } = req.params;
     const userData = req.body;
+    const updatedAt = new Date(); // Tạo giá trị thời gian hiện tại
 
     try {
-      // Lấy thông tin người dùng hiện tại
       const user = await UserModel.getUserById(id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Xử lý cập nhật avatar nếu có file mới
+      // Nếu có file mới, xử lý cập nhật avatar
       if (req.file) {
         // Xử lý xóa ảnh cũ nếu có
         if (user.avatar && user.avatar.includes("firebase")) {
@@ -108,25 +152,18 @@ class AuthController {
             await bucket.file(decodeURIComponent(oldImagePath)).delete();
           } catch (error) {
             console.log("Error deleting old image:", error);
-            // Không return lỗi ở đây, tiếp tục upload ảnh mới
           }
         }
 
-        // Tạo tên file mới với userId để tránh trùng lặp
         const timestamp = Date.now();
         const fileName = `avatars/${id}_${timestamp}_${path.basename(
           req.file.originalname
         )}`;
         const blob = bucket.file(fileName);
-
-        // Tạo stream để upload file
         const blobStream = blob.createWriteStream({
-          metadata: {
-            contentType: req.file.mimetype,
-          },
+          metadata: { contentType: req.file.mimetype },
         });
 
-        // Xử lý lỗi trong quá trình upload
         blobStream.on("error", (error) => {
           console.error("Upload error:", error);
           return res
@@ -134,15 +171,12 @@ class AuthController {
             .json({ message: "Unable to upload image", error });
         });
 
-        // Khi upload hoàn tất
         blobStream.on("finish", async () => {
-          // Tạo URL công khai cho file
           const publicUrl = format(
             `https://storage.googleapis.com/${bucket.name}/${blob.name}`
           );
-
-          // Cập nhật URL avatar mới vào database
-          userData.avatar = publicUrl; // Thay đổi avatar mới trong userData
+          userData.avatar = publicUrl;
+          userData.updatedAt = updatedAt; // Truyền updatedAt vào userData
 
           await UserModel.updateUser(id, userData);
           res.status(200).json({
@@ -151,14 +185,14 @@ class AuthController {
           });
         });
 
-        // Ghi dữ liệu file vào stream
         blobStream.end(req.file.buffer);
       } else {
         // Nếu không có file mới, chỉ cập nhật thông tin người dùng
+        userData.updatedAt = updatedAt; // Truyền updatedAt vào userData
         await UserModel.updateUser(id, userData);
         res.status(200).json({
           message: "User updated successfully",
-          updatedAt: updatedUser.updatedAt,
+          updatedAt,
         });
       }
     } catch (error) {
@@ -170,85 +204,134 @@ class AuthController {
   static async deleteUser(req, res) {
     try {
       const { id } = req.params;
-
+  
       // Kiểm tra nếu người dùng tồn tại
       const user = await UserModel.getUserById(id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-
-      // Xóa người dùng
+  
+      // Xóa ảnh đại diện từ Firebase Storage nếu có
+      if (user.avatar && user.avatar.includes("firebase")) {
+        const imagePath = user.avatar.split("/o/")[1].split("?")[0]; // Lấy đường dẫn ảnh trên Storage
+        try {
+          await bucket.file(decodeURIComponent(imagePath)).delete();
+          console.log("User avatar deleted from Firebase Storage");
+        } catch (error) {
+          console.error("Error deleting avatar from Firebase Storage:", error);
+          return res.status(500).json({ message: "Failed to delete user avatar", error });
+        }
+      }
+  
+      // Xóa người dùng từ cơ sở dữ liệu
       await UserModel.deleteUser(id);
-
-      // Trả về thông báo thành công
+  
       res.status(200).json({ message: "User deleted successfully" });
     } catch (error) {
+      console.error("Error deleting user:", error);
       res.status(500).json({ message: "Server error", error });
     }
   }
+  
 
   static async getAllUsers(req, res) {
-    const users = await UserModel.getAllUsers();
-    res.status(200).json(users);
-  }
-
-  static async getPaginatedUsers(req, res) {
     try {
-      const page = parseInt(req.query.page) || 1; // Lấy số trang từ query string
-      const users = await UserModel.getPaginatedUsers(page);
-      const totalCount = await UserModel.getTotalUsersCount(); // Lấy tổng số người dùng
+      const page = parseInt(req.query.page) || 0; // if page=0, get all users
+      const limit = parseInt(req.query.limit) || 5;
+      const search = req.query.search || '';
+      const sort = req.query.sort || 'createdAt';
+      const order = req.query.order?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
 
-      const totalPages = Math.ceil(totalCount / 5); // Tính tổng số trang
-
-      res.status(200).json({
-        users,
-        currentPage: page,
-        totalPages,
-        totalCount,
+      const result = await UserModel.getAllUsers({
+        page,
+        limit,
+        search,
+        sort,
+        order
       });
+
+      // If pagination is requested (page > 0)
+      if (page > 0) {
+        res.status(200).json({
+          message: "Users retrieved successfully",
+          data: result.users,
+          pagination: {
+            total: result.total,
+            page: result.page,
+            totalPages: result.totalPages,
+            limit: result.limit
+          }
+        });
+      } else {
+        // If all users are requested (page = 0)
+        res.status(200).json({
+          message: "All users retrieved successfully",
+          data: result.users,
+          total: result.total
+        });
+      }
     } catch (error) {
-      res.status(500).json({ message: "Server error", error });
+      console.error("Error retrieving users:", error);
+      res.status(500).json({ message: "Server error", error: error.message });
     }
   }
 
   static async googleLogin(req, res) {
-    const { idToken } = req.body; // Nhận idToken từ frontend
+    const { idToken } = req.body;
 
     try {
-      // Xác thực ID token với Firebase
       const decodedToken = await admin.auth().verifyIdToken(idToken);
       const { uid, email, name, picture } = decodedToken;
 
-      // Kiểm tra xem người dùng đã tồn tại chưa
+      // Tìm người dùng qua email
       let user = await UserModel.getUserByEmail(email);
+
+      // Nếu người dùng chưa tồn tại, tạo mới
       if (!user) {
-        // Nếu người dùng chưa tồn tại, tạo người dùng mới
-        const role = isCompanyEmail(email) ? "admin" : "user";
-        const userId = await UserModel.createUser({
-          username: name,
+        const newUserData = {
+          username: name || `user_${uid}`,
+          password: null, // Không lưu mật khẩu cho người dùng Google
+          role: "user",
           email,
-          avatar: picture,
-          role,
-          password: null, // Mật khẩu sẽ là null vì người dùng sử dụng Google
-        });
-        user = { id: userId, email, role };
+          avatar: picture || null,
+        };
+
+        const newUserId = await UserModel.createUser(newUserData);
+        user = { id: newUserId, ...newUserData };
       }
 
-      // Tạo token cho người dùng
+      // Tạo JWT token
       const token = generateToken({
         id: user.id,
         email: user.email,
         role: user.role,
       });
+
+      // Lưu token vào cookie
       res.cookie("token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
-      res.status(200).json({ message: "Login with Google successful", token });
+      res.status(200).json({
+        message: "Login successful",
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          avatar: user.avatar,
+          username: user.username,
+        },
+        token,
+      });
     } catch (error) {
-      console.error("Error during Google login:", error);
+      console.error("Error in Google login:", error);
+
+      if (error.code === "auth/invalid-id-token") {
+        return res.status(400).json({ message: "Invalid ID token" });
+      }
+
       res.status(500).json({ message: "Server error", error });
     }
   }

@@ -176,15 +176,87 @@ class UserModel {
   }
 
   static async setResetToken(id, resetTokenHash, resetTokenExpiry) {
-    const query =
-      "UPDATE users SET resetToken = ?, resetTokenExpiry = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
-    await db.execute(query, [resetTokenHash, resetTokenExpiry, id]);
+    const connection = await db.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+
+      // Clear any existing token
+      await connection.execute(
+        'UPDATE users SET resetToken = NULL, resetTokenExpiry = NULL WHERE id = ?',
+        [id]
+      );
+
+      // Set new token
+      const query = `
+        UPDATE users 
+        SET resetToken = ?,
+            resetTokenExpiry = ?,
+            updatedAt = CURRENT_TIMESTAMP 
+        WHERE id = ?`;
+
+      await connection.execute(query, [
+        resetTokenHash,
+        resetTokenExpiry,
+        id
+      ]);
+
+      // Verify token was set
+      const [result] = await connection.execute(
+        'SELECT resetToken FROM users WHERE id = ?',
+        [id]
+      );
+
+      if (!result[0]?.resetToken) {
+        throw new Error('Failed to set reset token');
+      }
+
+      await connection.commit();
+      console.log('Token successfully saved in DB:', result[0].resetToken);
+      
+    } catch (error) {
+      await connection.rollback();
+      console.error('Error setting reset token:', error);
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   static async getUserByResetToken(resetTokenHash) {
-    const query = "SELECT * FROM users WHERE resetToken = ?";
-    const [rows] = await db.execute(query, [resetTokenHash]);
-    return rows[0];
+    try {
+      const query = `
+        SELECT * FROM users 
+        WHERE resetToken = ? 
+        AND resetTokenExpiry > CURRENT_TIMESTAMP
+        AND resetToken IS NOT NULL`;
+
+      console.log('Searching for token in DB:', resetTokenHash);
+
+      const [rows] = await db.execute(query, [resetTokenHash]);
+
+      // Enhanced debugging
+      if (rows.length > 0) {
+        console.log('Found user with matching token. User ID:', rows[0].id);
+        console.log('Token expiry:', rows[0].resetTokenExpiry);
+      } else {
+        console.log('No user found with this token');
+        
+        // Debug query to check all active tokens
+        const [allTokens] = await db.execute(`
+          SELECT id, resetToken, resetTokenExpiry 
+          FROM users 
+          WHERE resetToken IS NOT NULL
+        `);
+        
+        console.log('All active tokens in DB:', allTokens);
+      }
+
+      return rows[0];
+    } catch (error) {
+      console.error('Error in getUserByResetToken:', error);
+      throw error;
+    }
   }
 
   static async updatePassword(id, hashedPassword) {
@@ -194,9 +266,31 @@ class UserModel {
   }
 
   static async clearResetToken(id) {
-    const query =
-      "UPDATE users SET resetToken = NULL, resetTokenExpiry = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?";
-    await db.execute(query, [id]);
+    try {
+      const query = `
+        UPDATE users 
+        SET resetToken = NULL,
+            resetTokenExpiry = NULL,
+            updatedAt = CURRENT_TIMESTAMP 
+        WHERE id = ?`;
+
+      await db.execute(query, [id]);
+
+      // Verify token was cleared
+      const [result] = await db.execute(
+        'SELECT resetToken FROM users WHERE id = ?',
+        [id]
+      );
+
+      if (result[0]?.resetToken !== null) {
+        throw new Error('Failed to clear reset token');
+      }
+
+      console.log('Reset token cleared successfully for user:', id);
+    } catch (error) {
+      console.error('Error clearing reset token:', error);
+      throw error;
+    }
   }
 }
 

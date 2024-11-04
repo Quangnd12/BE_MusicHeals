@@ -1,34 +1,38 @@
-const nodemailer = require("nodemailer");
+const nodemailer = require('nodemailer');
 
-const sendEmail = async (options) => {
+const sendEmail = async (to, subject, html) => {
   try {
+    // Tạo transporter
     const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT,
-      secure: false, // false cho port 587, true cho port 465
+      service: 'gmail',
       auth: {
         user: process.env.EMAIL_USERNAME,
-        pass: process.env.EMAIL_PASSWORD,
+        pass: process.env.EMAIL_PASSWORD 
       },
       tls: {
-        rejectUnauthorized: false, // Chỉ sử dụng trong môi trường phát triển
-      },
+        rejectUnauthorized: false
+      }
     });
 
+    // Cấu hình email
     const mailOptions = {
-      from: `"MusicHeals Support" <${process.env.EMAIL_FROM}>`,
-      to: options.email,
-      subject: options.subject,
-      text: options.message,
-      html: options.html, // Thêm tùy chọn HTML
+      from: {
+        name: 'Music Heals Support',
+        address: process.env.EMAIL_USERNAME
+      },
+      to: to,
+      subject: subject,
+      html: html
     };
 
+    // Gửi email
     const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent: ", info.messageId);
+    console.log('Email sent successfully:', info.messageId);
     return info;
+
   } catch (error) {
-    console.error("Send email error: ", error);
-    throw error;
+    console.error('Send email error: ', error);
+    throw new Error('Failed to send email');
   }
 };
 

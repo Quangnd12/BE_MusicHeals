@@ -51,10 +51,10 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api", artistRoutes);
+app.use("/api/artists", artistRoutes);
 app.use("/api", followRoutes);
 app.use("/api/genres", genreRoutes);
-app.use("/api/", albumRoutes);
+app.use("/api/albums", albumRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/songs", songRoutes);
 

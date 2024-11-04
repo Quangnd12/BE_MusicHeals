@@ -1,168 +1,123 @@
-const Album = require("../models/albumModel");
+const AlbumModel = require('../models/albumModel'); 
+const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
-// Create a new album
-exports.createAlbum = async (req, res) => {
+const getAllAlbums = async (req, res) => {
+  const page = parseInt(req.query.page) || 1; 
+  const limit = parseInt(req.query.limit) || 10; 
+
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
+
   try {
-    const {
-      title,
-      artistId,
-      songId,
-      describe,
-      totalTracks,
-      popularity,
-      releaseDate,
-    } = req.body;
+    const albums = await AlbumModel.getAllAlbums(page, limit);
+    const totalCount = await AlbumModel.getAlbumCount(); 
+    const totalPages = Math.ceil(totalCount / limit); 
+    res.json({albums, totalPages });
+  } catch (error) {
+    console.error(error); 
+    res.status(500).json({ message: 'Error retrieving albums', error: error.message });
+  }
+};
 
-    // Upload ảnh album nếu có
-    let imageUrl = null;
-    if (req.file) {
-      imageUrl = await Album.uploadImage(req.file);
+const getAlbumById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const album = await AlbumModel.getAlbumById(id);
+
+    if (!album) {
+      return res.status(404).json({ message: 'Album not found' });
     }
 
-    // Xử lý artistId và songId
-    const processedArtistId = artistId ? (
-      Array.isArray(artistId) 
-        ? artistId 
-        : artistId.split(',').map(id => id.trim())
-    ) : [];
+    res.json(album);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving album', error: error.message });
+  }
+};
 
-    const processedSongId = songId ? (
-      Array.isArray(songId)
-        ? songId
-        : songId.split(',').map(id => id.trim())
-    ) : [];
+const createAlbum = async (req, res) => {
+  try {
+    const { title, artistID, releaseDate } = req.body;
+    if (!title || !artistID || !releaseDate) {
+      return res.status(400).json({ message: 'Title, artistID, and releaseDate are required' });
+    }
 
-    // Chuẩn bị dữ liệu album cho Firestore
-    const albumData = {
-      title,
-      artistId: processedArtistId,
-      songId: processedSongId,
-      describe,
-      totalTracks: parseInt(totalTracks, 10) || 0,
-      popularity: parseInt(popularity, 10) || 0,
-      releaseDate: new Date(releaseDate),
-      image: imageUrl,
+    const newAlbum = { title, artistID, releaseDate };
+
+    if (req.file) {
+      const imageFile = req.file; 
+      const imagePublicUrl = await uploadToStorage(imageFile, 'albums/images');
+      newAlbum.image = imagePublicUrl; 
+    }
+
+    const albumId = await AlbumModel.createAlbum(newAlbum);
+    res.status(200).json({ id: albumId, ...newAlbum });
+
+  } catch (error) {
+    console.error('Error creating album:', error);
+    if (error.message === 'Album with this title already exists for this artist') {
+      return res.status(400).json({ message: error.message });
+    }
+    res.status(500).json({ message: 'Error creating album', error: error.message });
+  }
+};
+
+const updateAlbum = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existingAlbum = await AlbumModel.getAlbumById(id);
+    
+    if (!existingAlbum) {
+      return res.status(404).json({ message: 'Album not found' });
+    }
+
+    const updatedAlbum = {
+      title: req.body.title || existingAlbum.title,
+      image: existingAlbum.image, 
+      artistID: req.body.artistID || existingAlbum.artistID,
+      releaseDate: req.body.releaseDate || existingAlbum.releaseDate,
     };
 
-    const albumId = await Album.create(albumData);
-    const createdAlbum = await Album.findById(albumId);
-
-    res.status(201).json({
-      album: createdAlbum,
-      message: "Tạo album thành công",
-      albumId,
-    });
-  } catch (error) {
-    console.error("Error creating album:", error);
-    res.status(500).json({
-      message: "Đã xảy ra lỗi khi tạo album",
-      error: error.message,
-    });
-  }
-};
-
-// Get album by ID
-exports.getAlbumById = async (req, res) => {
-  try {
-    const { albumId } = req.params;
-    const album = await Album.findById(albumId);
-    if (!album) {
-      return res.status(404).json({ message: "Album không tồn tại" });
-    }
-    res.status(200).json(album);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Đã xảy ra lỗi", error: error.message });
-  }
-};
-
-// Update album
-exports.updateAlbum = async (req, res) => {
-  try {
-    const { albumId } = req.params;
-    const updateData = { ...req.body };
-
-    // Handle numeric fields
-    if (updateData.totalTracks)
-      updateData.totalTracks = parseInt(updateData.totalTracks, 10);
-    if (updateData.popularity)
-      updateData.popularity = parseInt(updateData.popularity, 10);
-
-    // Handle date field
-    if (updateData.releaseDate)
-      updateData.releaseDate = new Date(updateData.releaseDate);
-
-    // Xử lý các trường dạng mảng
-    ["songId, artistId"].forEach((field) => {
-      if (updateData[field]) {
-        updateData[field] = Array.isArray(updateData[field])
-          ? updateData[field]
-          : [updateData[field]];
-      }
-    });
-
-    // Upload new image if provided
     if (req.file) {
-      const imageUrl = await Album.uploadImage(req.file);
-      updateData.image = imageUrl;
+      const imageFile = req.file; 
+      const imagePublicUrl = await uploadToStorage(imageFile, 'albums/images');
+      updatedAlbum.image = imagePublicUrl; 
     }
 
-    updateData.updatedAt = new Date();
-
-    const updatedAlbum = await Album.update(albumId, updateData);
-    if(!updateData) {
-      return res.status(404).json({message: "Không tìm thấy album"})
-    }
-    res
-      .status(200)
-      .json({ message: "Cập nhật Album thành công", album: updatedAlbum });
+    await AlbumModel.updateAlbum(id, updatedAlbum);
+    res.status(200).json({ message: "Album updated successfully", album: updatedAlbum });
+    
   } catch (error) {
     console.error("Error updating album:", error);
-    res.status(500).json({
-      message: "Có lỗi xảy ra khi cập nhật album",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// Delete album
-exports.deleteAlbum = async (req, res) => {
+// Xóa album theo ID
+const deleteAlbum = async (req, res) => {
   try {
-    const { albumId } = req.params;
-    await Album.delete(albumId);
-    res.status(200).json({ message: "Album deleted successfully" });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "An error occurred", error: error.message });
-  }
-};
+    const { id } = req.params;
 
-// Get all albums
-exports.getAllAlbums = async (req, res) => {
-  try {
-    const { page = 1, limit = 5, searchTerm = "" } = req.query;
-
-    const result = await Album.getAllAlbums(
-      parseInt(page),
-      parseInt(limit),
-      searchTerm
-    );
-
-    if (!result || !result.albums) {
-      throw new Error("Invalid result from AlbumModel.getAllAlbums");
+    const existingAlbum = await AlbumModel.getAlbumById(id);
+    if (!existingAlbum) {
+      return res.status(404).json({ message: 'Album not found' });
     }
 
-    res.status(200).json({
-      total: result.totalAlbums,
-      currentPage: parseInt(page),
-      totalPages: result.totalPages,
-      albums: result.albums,
-    });
+    if (existingAlbum.image && existingAlbum.image.includes("firebase")) {
+      const oldImagePath = existingAlbum.image.split("/o/")[1].split("?")[0];
+      try {
+        await bucket.file(decodeURIComponent(oldImagePath)).delete();
+      } catch (error) {
+        console.error("Error deleting old image:", error);
+      }
+    }
+
+    await AlbumModel.deleteAlbum(id);
+    res.json({ message: 'Album deleted successfully' });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Có lỗi xảy ra", error: error.message });
+    console.error('Error deleting album:', error);
+    res.status(500).json({ message: 'Error deleting album', error: error.message });
   }
 };
+
+module.exports = { getAllAlbums, getAlbumById, createAlbum, updateAlbum, deleteAlbum };

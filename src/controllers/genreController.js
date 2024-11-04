@@ -1,114 +1,103 @@
-const GenreModel = require("../models/genreModel");
+const GenreModel = require('../models/genreModel');
 
-
+// Lấy tất cả các thể loại
 const getAllGenres = async (req, res) => {
+  const page = parseInt(req.query.page) || 1; 
+  const limit = parseInt(req.query.limit) || 10; 
+
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
+
   try {
-    const genres = await GenreModel.getAllGenres();
-    res.json({
-      message: "Genres retrieved successfully",
-      data: genres,
-    });
+    const genres = await GenreModel.getAllGenres(page, limit);
+    const totalCount = await GenreModel.getGenreCount(); 
+    const totalPages = Math.ceil(totalCount / limit); 
+    res.json({genres, totalPages });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error(error); 
+    res.status(500).json({ message: 'Error retrieving genres', error: error.message });
   }
 };
 
+// Lấy thể loại theo ID
 const getGenreById = async (req, res) => {
   try {
-    const { genreId } = req.params;
-    const genre = await GenreModel.getGenreById(genreId);
+    const { id } = req.params;
+    const genre = await GenreModel.getGenreById(id);
 
     if (!genre) {
-      return res.status(404).json({ message: "Genre not found" });
+      return res.status(404).json({ message: 'Genre not found' });
     }
 
-    res.json({
-      message: "Genre retrieved successfully",
-      data: genre,
-    });
+    res.json(genre);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Error retrieving genre', error: error.message });
   }
 };
 
+// Tạo thể loại mới
+const createGenre = async (req, res) => {
+  try {
+    const { countryID, name } = req.body;
+    if (!name || !countryID) {
+      return res.status(400).json({ message: 'Name and countryID are required' });
+    }
+
+    const newGenre = { countryID, name };
+
+    const genreId = await GenreModel.createGenre(newGenre);
+    res.status(200).json({ id: genreId, ...newGenre }); 
+
+  } catch (error) {
+    console.error('Error creating genre:', error);
+    if (error.message === 'Genre with this name already exists') {
+      return res.status(400).json({ message: error.message });
+    }
+    res.status(500).json({ message: 'Error creating genre', error: error.message });
+  }
+};
+
+// Cập nhật thể loại
 const updateGenre = async (req, res) => {
   try {
-    const { genreId } = req.params;
-    const { name, description, subgenres } = req.body;
-    const image=req.file;
-    let subgenresArray = Array.isArray(subgenres) ? subgenres : (typeof subgenres === 'string' ? subgenres.split(',') : []);
+    const { id } = req.params;
+    const existingGenre = await GenreModel.getGenreById(id);
 
-    const updatedGenre = await GenreModel.updateGenre(genreId, name, description, image, subgenresArray);
-
-    res.json({
-      message: "Genre updated successfully",
-      data: updatedGenre,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-const createGenre = async (req, res) => {
-  const { name, description, subgenres } = req.body;
-  const image = req.file;
-  let subgenresArray = Array.isArray(subgenres) ? subgenres : subgenres.split(',');
-  // Kiểm tra các trường bắt buộc
-  if (!name || !description || !image) {
-    return res.status(400).json({ message: "Name and description are required" });
-  }
-
-  try {
-    // Chỉ cần truyền subgenres vào model mà không cần xử lý thêm
-    const newGenre = await GenreModel.createGenre(name, description, image, subgenresArray || []);
-
-    res.status(201).json({
-      message: "Genre created successfully",
-      data: newGenre,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-
-
-const deleteGenre = async (req, res) => {
-  try {
-    const { genreId } = req.params;
-    await GenreModel.deleteGenre(genreId);
-    res.json({
-      message: "Genre deleted successfully",
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-const deleteGenreAll = async (req, res) => {
-  const { genreIds } = req.params;  // Nhận danh sách genreIds từ request body
-
-  if (!Array.isArray(genreIds) || genreIds.length === 0) {
-    return res.status(400).json({ message: 'Invalid or empty id array' });
-  }
-
-  try {
-    console.log(`Attempting to delete genres with IDs: ${genreIds.join(', ')}`);  // Log danh sách genreIds
-
-    const deletedCount = await GenreModel.deleteGenresAll(genreIds);  // Xóa thể loại theo danh sách ID
-
-    if (deletedCount === 0) {
-      return res.status(404).json({ message: 'No genres found with the given IDs' });
+    if (!existingGenre) {
+      return res.status(404).json({ message: 'Genre not found' });
     }
 
-    res.status(200).json({ message: 'Genres deleted successfully', deletedCount });
+    const updatedGenre = {
+      countryID: req.body.countryID || existingGenre.countryID,
+      name: req.body.name || existingGenre.name,
+    };
+
+    await GenreModel.updateGenre(id, updatedGenre);
+    res.status(200).json({ message: "Genre updated successfully", genre: updatedGenre });
+
   } catch (error) {
-    console.error('Error deleting genres:', error);
-    res.status(500).json({ message: 'Failed to delete genres' });
+    console.error("Error updating genre:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
+// Xóa thể loại theo ID
+const deleteGenre = async (req, res) => {
+  try {
+    const { id } = req.params;
 
+    const existingGenre = await GenreModel.getGenreById(id);
+    if (!existingGenre) {
+      return res.status(404).json({ message: 'Genre not found' });
+    }
 
+    await GenreModel.deleteGenre(id);
+    res.json({ message: 'Genre deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting genre:', error);
+    res.status(500).json({ message: 'Error deleting genre', error: error.message });
+  }
+};
 
-module.exports = { getAllGenres, getGenreById, updateGenre, createGenre, deleteGenre, deleteGenreAll };
+module.exports = { getAllGenres, getGenreById, createGenre, updateGenre, deleteGenre };

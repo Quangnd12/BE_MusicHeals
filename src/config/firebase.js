@@ -11,4 +11,4 @@ const db = admin.firestore();
 const bucket = admin.storage().bucket(); // Get a reference to the storage bucket
 const storage = admin.storage();
 
-module.exports = { admin, db, bucket,storage }; // Export the bucket
+module.exports = { admin, db, bucket, storage }; // Export the bucket

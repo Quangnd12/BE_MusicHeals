@@ -22,7 +22,7 @@ const authenticateUser = async (req, res, next) => {
         try {
           // Xác thực refreshToken
           const decodedRefresh = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-          
+
           // Tìm người dùng từ database bằng ID từ refreshToken
           const user = await User.findByPk(decodedRefresh.id);
 

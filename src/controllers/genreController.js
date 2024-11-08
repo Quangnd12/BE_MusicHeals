@@ -1,26 +1,60 @@
 const GenreModel = require('../models/genreModel');
+const {uploadToStorage}=require("../middlewares/uploadMiddleware");
+const {bucket} =require("../config/firebase");
 
-// Lấy tất cả các thể loại
 const getAllGenres = async (req, res) => {
+
   const page = parseInt(req.query.page) || 1; 
-  const limit = parseInt(req.query.limit) || 10; 
+  const limit = parseInt(req.query.limit) || 5;
+  let countryIDs;
+  const searchName = req.query.searchName || ''; 
+
+  if (req.query.countryIDs) {
+    try {
+      countryIDs = JSON.parse(req.query.countryIDs);
+    } catch (error) {
+      return res.status(400).json({ message: 'Invalid countryIDs format' });
+    }
+  }
 
   if (page < 1 || limit < 1) {
     return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
   }
 
   try {
-    const genres = await GenreModel.getAllGenres(page, limit);
-    const totalCount = await GenreModel.getGenreCount(); 
-    const totalPages = Math.ceil(totalCount / limit); 
-    res.json({genres, totalPages });
+
+    let genres;
+    if (!req.query.page || !req.query.limit) {
+      genres = await GenreModel.getAllGenres(false, null, null, countryIDs, searchName);
+      return res.status(200).json({ genres });
+    }
+
+    genres = await GenreModel.getAllGenres(true, page, limit, countryIDs, searchName);
+
+    let totalCount;
+    if (countryIDs && countryIDs.length > 0) {
+      totalCount = await GenreModel.getGenreCountByCountry(countryIDs, searchName);
+    } else {
+      totalCount = await GenreModel.getGenreCount(searchName);
+    }
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return res.status(200).json({
+      genres,
+      totalPages,
+      totalCount,
+      limit,
+      currentPage: page
+    });
   } catch (error) {
-    console.error(error); 
-    res.status(500).json({ message: 'Error retrieving genres', error: error.message });
+    console.error(error);
+    return res.status(500).json({ message: 'Error retrieving genres', error: error.message });
   }
 };
 
-// Lấy thể loại theo ID
+
+
+
 const getGenreById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -36,18 +70,26 @@ const getGenreById = async (req, res) => {
   }
 };
 
-// Tạo thể loại mới
+
+
+
 const createGenre = async (req, res) => {
   try {
     const { countryID, name } = req.body;
+    console.log("Request body:", req.body);
     if (!name || !countryID) {
       return res.status(400).json({ message: 'Name and countryID are required' });
     }
 
     const newGenre = { countryID, name };
+    if (req.file) {
+      const imageFile = req.file;
+      const imagePublicUrl = await uploadToStorage(imageFile, 'genres/images');
+      newGenre.image = imagePublicUrl;
+    }
 
     const genreId = await GenreModel.createGenre(newGenre);
-    res.status(200).json({ id: genreId, ...newGenre }); 
+    res.status(200).json({ id: genreId, ...newGenre });
 
   } catch (error) {
     console.error('Error creating genre:', error);
@@ -71,8 +113,15 @@ const updateGenre = async (req, res) => {
     const updatedGenre = {
       countryID: req.body.countryID || existingGenre.countryID,
       name: req.body.name || existingGenre.name,
+      image: existingGenre.image,
     };
+    console.log(updatedGenre);
 
+    if (req.file) {
+      const imageFile = req.file;
+      const imagePublicUrl = await uploadToStorage(imageFile, 'genres/images');
+      updatedGenre.image = imagePublicUrl;
+    }
     await GenreModel.updateGenre(id, updatedGenre);
     res.status(200).json({ message: "Genre updated successfully", genre: updatedGenre });
 
@@ -82,7 +131,6 @@ const updateGenre = async (req, res) => {
   }
 };
 
-// Xóa thể loại theo ID
 const deleteGenre = async (req, res) => {
   try {
     const { id } = req.params;
@@ -92,6 +140,21 @@ const deleteGenre = async (req, res) => {
       return res.status(404).json({ message: 'Genre not found' });
     }
 
+    // Kiểm tra xem có hình ảnh hay không và định dạng có đúng hay không
+    if (existingGenre.image ) {
+      // Tạo đường dẫn tệp từ URL
+      const oldImagePath = existingGenre.image.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
+      try {
+        // Xóa hình ảnh
+        await bucket.file(oldImagePath).delete();
+        console.log("Image deleted successfully.");
+      } catch (error) {
+        console.error("Error deleting old image:", error);
+        return res.status(500).json({ message: 'Error deleting old image', error: error.message });
+      }
+    }
+
+    // Xóa thể loại
     await GenreModel.deleteGenre(id);
     res.json({ message: 'Genre deleted successfully' });
   } catch (error) {
@@ -100,4 +163,7 @@ const deleteGenre = async (req, res) => {
   }
 };
 
-module.exports = { getAllGenres, getGenreById, createGenre, updateGenre, deleteGenre };
+
+
+
+module.exports = { getAllGenres, getGenreById, createGenre, updateGenre, deleteGenre};

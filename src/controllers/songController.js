@@ -1,27 +1,62 @@
-const SongModel = require('../models/songModel'); 
-const GenreModel = require('../models/genreModel');
-const AlbumModel = require('../models/albumModel');
-const ArtistModel = require('../models/artistModel');
-const {uploadToStorage}=require("../middlewares/uploadMiddleware");
+const SongModel = require('../models/songModel');
+
+const { uploadToStorage } = require("../middlewares/uploadMiddleware");
+const { bucket } = require("../config/firebase");
+
 
 const getAllSongs = async (req, res) => {
-  const page = parseInt(req.query.page) || 1; 
-  const limit = parseInt(req.query.limit) || 10; 
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 5;
+  const searchName = req.query.searchName || '';
+  const minDuration = parseInt(req.query.minDuration) || 0;
+  const maxDuration = parseInt(req.query.maxDuration) || 0;
+  const minListensCount = parseInt(req.query.minListensCount) || 0;
+  const maxListensCount = parseInt(req.query.maxListensCount) || 0;
+  
+  let genres;
+
+  if (req.query.genres) {
+    try {
+      genres = JSON.parse(req.query.genres);
+    } catch (error) {
+      return res.status(400).json({ message: 'Invalid genres format. Must be a valid JSON array.' });
+    }
+  }
+
+  if (!req.query.page && !req.query.limit) {
+    try {
+      const songs = await SongModel.getAllSongs(false, null, null, searchName, genres, minDuration, maxDuration, minListensCount,maxListensCount);
+      return res.status(200).json({ songs });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: 'Error retrieving songs', error: error.message });
+    }
+  }
 
   if (page < 1 || limit < 1) {
     return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
   }
 
   try {
-    const songs = await SongModel.getAllSongs(page, limit);
-    const totalCount = await SongModel.getSongCount(); 
-    const totalPages = Math.ceil(totalCount / limit); 
-    res.json({songs, totalPages });
+
+    const songs = await SongModel.getAllSongs(true, page, limit, searchName, genres, minDuration, maxDuration, minListensCount,maxListensCount);
+    const totalCount = await SongModel.getSongCount();
+    const totalPages = Math.ceil(totalCount / limit);
+
+    res.status(200).json({
+      songs,
+      totalPages,
+      totalCount,
+      limit,
+      currentPage: page
+    });
+
   } catch (error) {
-    console.error(error); 
+    console.error(error);
     res.status(500).json({ message: 'Error retrieving songs', error: error.message });
   }
 };
+
 
 
 const getSongById = async (req, res) => {
@@ -54,8 +89,8 @@ const createSong = async (req, res) => {
       lyrics: lyrics || null,
       duration,
       releaseDate,
-      is_explicit: is_explicit || false,
-      listens_count: 0 // Mặc định là 0
+      is_explicit: is_explicit || 0,
+      listens_count: 0,
     };
 
     if (req.files) {
@@ -76,14 +111,18 @@ const createSong = async (req, res) => {
 
     // Tạo bài hát trong database
     const songId = await SongModel.createSong(newSong);
-    
-    const artistIDs = Array.isArray(artistID) ? artistID : [artistID];
-    const albumIDs = Array.isArray(albumID) ? albumID : [albumID];
-    const genreIDs = Array.isArray(genreID) ? genreID : [genreID];
 
-    if (artistIDs) await SongModel.insertArtists(songId, artistIDs);
-    if (albumIDs) await SongModel.insertAlbums(songId, albumIDs);
-    if (genreIDs) await SongModel.insertGenres(songId, genreIDs);
+    const artistIDs = Array.isArray(artistID) ? artistID : [artistID];
+    const genreIDs = Array.isArray(genreID) ? genreID : [genreID].filter(id => id); // Đảm bảo genreID hợp lệ
+    const albumIDs = Array.isArray(albumID) ? albumID : [albumID].filter(id => id); // Đảm bảo albumID hợp lệ
+
+    if (artistIDs.length > 0) await SongModel.insertArtists(songId, artistIDs);
+
+    // Kiểm tra và thêm genreID
+    if (genreIDs.length > 0) await SongModel.insertGenres(songId, genreIDs);
+
+    // Kiểm tra và thêm albumID
+    if (albumIDs.length > 0) await SongModel.insertAlbums(songId, albumIDs);
 
     res.status(200).json({ id: songId, ...newSong });
   } catch (error) {
@@ -139,10 +178,10 @@ const updateSong = async (req, res) => {
       }
     }
 
-    // Cập nhật nghệ sĩ
-    await SongModel.updateSong(id, updatedSong);
+    await SongModel.deleteArtistAssociations(id);
+    await SongModel.deleteAlbumAssociations(id);
+    await SongModel.deleteGenreAssociations(id);
 
-    // Cập nhật các quan hệ nếu có ID mới
     if (artistID) {
       const artistIDs = Array.isArray(artistID) ? artistID : [artistID];
       await SongModel.insertArtists(id, artistIDs);
@@ -157,6 +196,11 @@ const updateSong = async (req, res) => {
       const genreIDs = Array.isArray(genreID) ? genreID : [genreID];
       await SongModel.insertGenres(id, genreIDs);
     }
+
+    await SongModel.updateSong(id, updatedSong);
+
+    console.log({ genreID, albumID, artistID });
+
     res.status(200).json({ id, ...updatedSong });
   } catch (error) {
     console.error('Error updating song:', error);
@@ -165,34 +209,102 @@ const updateSong = async (req, res) => {
 };
 
 
-// Xóa bài hát theo ID
 const deleteSong = async (req, res) => {
   try {
     const { id } = req.params;
 
     const existingSong = await SongModel.getSongById(id);
     if (!existingSong) {
-      return res.status(404).json({ message: 'Song not found' });
+      return res.status(404).json({ message: 'Artist not found' });
     }
 
-    if (existingSong.file_song && existingSong.file_song.includes("firebase")) {
-      const oldFilePath = existingSong.file_song.split("/o/")[1].split("?")[0];
+    // Kiểm tra xem có hình ảnh hay không và định dạng có đúng hay không
+    if (existingSong.image) {
+      // Tạo đường dẫn tệp từ URL
+      const oldImagePath = existingSong.image.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
       try {
-        await bucket.file(decodeURIComponent(oldFilePath)).delete();
+        // Xóa hình ảnh
+        await bucket.file(oldImagePath).delete();
+        console.log("Image deleted successfully.");
       } catch (error) {
-        console.error("Error deleting old file:", error);
+        console.error("Error deleting old image:", error);
+        return res.status(500).json({ message: 'Error deleting old image', error: error.message });
       }
     }
-
+    if (existingSong.file_song) {
+      // Tạo đường dẫn tệp từ URL
+      const oldAudioPath = existingSong.file_song.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
+      try {
+        // Xóa audio
+        await bucket.file(oldAudioPath).delete();
+        console.log("Audio deleted successfully.");
+      } catch (error) {
+        console.error("Error deleting old audio:", error);
+        return res.status(500).json({ message: 'Error deleting old audio', error: error.message });
+      }
+    }
     await SongModel.deleteSong(id);
-    res.json({ message: 'Song deleted successfully' });
+    res.json({ message: 'deleted successfully' });
   } catch (error) {
-    console.error('Error deleting song:', error);
-    res.status(500).json({ message: 'Error deleting song', error: error.message });
+    console.error('Error deleting genre:', error);
+    res.status(500).json({ message: 'Error deleting genre', error: error.message });
   }
+
+
+};
+
+// lấy các bài hát theo khoảng thời lượng (duration) cụ thể
+const getSongsByDuration = async (req, res) => {
+  try {
+    const { minDuration, maxDuration } = req.query;
+
+    // Validate parameters
+    if (!minDuration || !maxDuration) {
+      return res.status(400).json({
+        message: 'Both minDuration and maxDuration are required (in seconds)'
+      });
+    }
+
+    const min = parseInt(minDuration);
+    const max = parseInt(maxDuration);
+
+    if (isNaN(min) || isNaN(max)) {
+      return res.status(400).json({
+        message: 'Duration values must be numbers'
+      });
+    }
+
+    if (min > max) {
+      return res.status(400).json({
+        message: 'minDuration cannot be greater than maxDuration'
+      });
+    }
+
+    const songs = await SongModel.getSongsByDuration(min, max);
+    res.json(songs);
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error retrieving songs',
+      error: error.message
+    });
+  }
+};
+const getSongsByMood = async (req, res) => {
+  try {
+    const { mood } = req.query;
+    if (!mood) {
+      return res.status(400).json({ message: 'Mood parameter is required' });
+    }
+
+    const songs = await SongModel.getSongsByMood(mood);
+    res.json(songs);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving songs', error: error.message });
+  }
+
 };
 
 
 
 
-module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong};
+module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong, getSongsByDuration, getSongsByMood };

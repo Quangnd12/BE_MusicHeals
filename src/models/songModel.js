@@ -3,44 +3,81 @@ const lyricsFinder = require('lyrics-finder');
 
 class SongModel {
 
-  static async getAllSongs(page = 1, limit = 10) {
-    const offset = (page - 1) * limit; 
-    const query = `SELECT 
-      songs.id,
-      songs.title,
-      songs.image,
-      songs.file_song,
-      songs.lyrics,
-      songs.duration,
-      songs.listens_count,
-      songs.releaseDate,
-      songs.is_explicit,
-      GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
-      GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
-      GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
-      GROUP_CONCAT(DISTINCT countries.name SEPARATOR ', ') AS country
-    FROM songs
-    LEFT JOIN song_artists ON songs.id = song_artists.songId
-    LEFT JOIN artists ON song_artists.artistId = artists.id
-    LEFT JOIN song_albums ON songs.id = song_albums.songID
-    LEFT JOIN albums ON song_albums.albumID = albums.id
-    LEFT JOIN song_genres ON songs.id = song_genres.songID
-    LEFT JOIN genres ON song_genres.genreID = genres.id
-    LEFT JOIN countries ON genres.countryID = countries.id
-    GROUP BY songs.id
-    LIMIT ${limit} OFFSET ${offset}`; 
+  static async getAllSongs(pagination = false, page, limit, searchName, genres = [], minDuration = 0, maxDuration = 0, minListensCount = 0,maxListensCount = 0) {
+    let query = `
+      SELECT 
+        songs.id,
+        songs.title,
+        songs.image,
+        songs.file_song,
+        songs.lyrics,
+        songs.duration,
+        songs.listens_count,
+        songs.releaseDate,
+        songs.is_explicit,
+        GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+        GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
+        GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
+        GROUP_CONCAT(DISTINCT artists.id SEPARATOR ', ') AS artistID,
+        GROUP_CONCAT(DISTINCT albums.id SEPARATOR ', ') AS albumID,
+        GROUP_CONCAT(DISTINCT genres.id SEPARATOR ', ') AS genreID,
+        GROUP_CONCAT(DISTINCT countries.name SEPARATOR ', ') AS country
+      FROM songs
+      LEFT JOIN song_artists ON songs.id = song_artists.songId
+      LEFT JOIN artists ON song_artists.artistId = artists.id
+      LEFT JOIN song_albums ON songs.id = song_albums.songID
+      LEFT JOIN albums ON song_albums.albumID = albums.id
+      LEFT JOIN song_genres ON songs.id = song_genres.songID
+      LEFT JOIN genres ON song_genres.genreID = genres.id
+      LEFT JOIN countries ON genres.countryID = countries.id
+    `;
 
-    const [rows] = await db.execute(query); 
+    const conditions = [];
+
+    if (searchName) {
+      conditions.push(`songs.title LIKE ?`);
+    }
+
+    if (genres.length > 0) {
+      conditions.push(`song_genres.genreID IN (${genres.join(', ')})`);
+    }
+
+    if (minDuration > 0 && maxDuration > 0) {
+      conditions.push(`songs.duration BETWEEN ? AND ?`);
+    }
+
+    if (minListensCount > 0 && maxListensCount>0) {
+      conditions.push(`songs.listens_count BETWEEN ? AND ?`);
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    query += ` GROUP BY songs.id`;
+
+    if (pagination) {
+      const offset = (page - 1) * limit;
+      query += ` LIMIT ${limit} OFFSET ${offset}`;
+    }
+
+    const params = [];
+    if (searchName) params.push(`%${searchName}%`);
+    if (genres.length > 0) params.push(...genres);
+    if (minDuration > 0 && maxDuration > 0) params.push(minDuration, maxDuration);
+    if (minListensCount > 0 && maxListensCount>0) params.push(minListensCount,maxListensCount);
+
+    const [rows] = await db.execute(query, params);
     return rows;
-}
+  }
 
-  
+
   static async getSongCount() {
     const query = 'SELECT COUNT(*) as count FROM songs';
     const [rows] = await db.execute(query);
     return rows[0].count;
   }
-  
+
 
   static async getSongById(id) {
     const query = `SELECT 
@@ -56,6 +93,9 @@ class SongModel {
     GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
     GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
     GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
+    GROUP_CONCAT(DISTINCT artists.id SEPARATOR ', ') AS artistID,
+    GROUP_CONCAT(DISTINCT albums.id SEPARATOR ', ') AS albumID,
+    GROUP_CONCAT(DISTINCT genres.id SEPARATOR ', ') AS genreID,
     GROUP_CONCAT(DISTINCT countries.name SEPARATOR ', ') AS country
   FROM songs
   LEFT JOIN song_artists ON songs.id = song_artists.songId
@@ -71,14 +111,13 @@ class SongModel {
     return rows[0];
   }
 
-
   static async createSong(songData) {
     const {
       title,
       image,
       file_song,
       artistID,
-      albumID,
+      albumID = null,
       genreID,
       duration,
       releaseDate,
@@ -87,22 +126,22 @@ class SongModel {
 
     } = songData;
 
-    const checkQuery = 'SELECT * FROM songs WHERE title = ?';
-    const [checkRows] = await db.execute(checkQuery, [title]);
-
-    if (checkRows.length > 0) {
-      throw new Error('Song with this title already exists');
-    }
+    
     const lyrics = await lyricsFinder(artistID, title) || "Not Found!";
     // Thêm bài hát vào bảng songs
     const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
     const [result] = await db.execute(query, [title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit]);
     const songId = result.insertId;
 
-    // Thêm mối quan hệ nghệ sĩ, album, thể loại
-    await this.insertArtists(songId, artistID);
-    await this.insertAlbums(songId, albumID);
-    await this.insertGenres(songId, genreID);
+    if (artistID && artistID.length > 0) {
+      await this.insertArtists(songId, artistID);
+    }
+    if (genreID && genreID.length > 0) {
+      await this.insertGenres(songId, genreID);
+    }
+    if (albumID && albumID.length > 0) {
+      await this.insertAlbums(songId, albumID);
+    }
 
     return songId;
   }
@@ -175,20 +214,7 @@ class SongModel {
       genreID
     } = songData;
 
-    // Kiểm tra nếu bài hát với tiêu đề tương tự đã tồn tại
-    const existingSongQuery = 'SELECT * FROM songs WHERE id = ?';
-    const [existingSong] = await db.execute(existingSongQuery, [id]);
-    if (existingSong.length === 0) {
-      throw new Error('Song not found');
-    }
-
-    if (title && existingSong[0].title !== title) {
-      const checkTitleQuery = 'SELECT * FROM songs WHERE title = ? AND id != ?';
-      const [checkTitle] = await db.execute(checkTitleQuery, [title, id]);
-      if (checkTitle.length > 0) {
-        throw new Error('A song with this title already exists');
-      }
-    }
+  
 
     // Cập nhật thông tin bài hát, giữ nguyên file cũ nếu không có file mới
     const updatedImage = image || existingSong[0].image;
@@ -222,6 +248,74 @@ class SongModel {
     await this.deleteSongAssociations(id);
     await db.execute('DELETE FROM songs WHERE id = ?', [id]);
   }
+
+  static async getSongsByDuration(minDuration, maxDuration) {
+    const query = `
+      SELECT 
+        songs.id,
+        songs.title,
+        songs.image,
+        songs.duration,
+        GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+        GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre
+      FROM songs
+      LEFT JOIN song_artists ON songs.id = song_artists.songId
+      LEFT JOIN artists ON song_artists.artistId = artists.id
+      LEFT JOIN song_genres ON songs.id = song_genres.songID
+      LEFT JOIN genres ON song_genres.genreID = genres.id
+      WHERE songs.duration BETWEEN ? AND ?
+      GROUP BY songs.id
+      ORDER BY songs.duration ASC
+    `;
+
+    const [rows] = await db.execute(query, [minDuration, maxDuration]);
+    return rows;
+  }
+
+  static async getSongsByMood(mood) {
+    // Map mood với các thể loại nhạc tương ứng
+    const moodGenreMap = {
+      'happy': ['Pop', 'Dance', 'Electronic', 'Disco', 'Nhạc trẻ'],
+      'sad': ['Ballad', 'Blues', 'Jazz', 'Soul'],
+      'energetic': ['Rock', 'Hip Hop', 'EDM', 'Metal'],
+      'relaxed': ['Acoustic', 'Classical', 'Ambient', 'Folk'],
+      'romantic': ['R&B', 'Love Songs', 'Jazz', 'Soul']
+    };
+
+    const genres = moodGenreMap[mood.toLowerCase()];
+    if (!genres) {
+      throw new Error('Invalid mood. Available moods: happy, sad, energetic, relaxed, romantic');
+    }
+
+    const query = `
+      SELECT DISTINCT
+        songs.id,
+        songs.title,
+        songs.image,
+        songs.duration,
+        songs.file_song,
+        songs.releaseDate,
+        GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+        GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
+        GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album
+      FROM songs
+      LEFT JOIN song_artists ON songs.id = song_artists.songId
+      LEFT JOIN artists ON song_artists.artistId = artists.id
+      LEFT JOIN song_genres ON songs.id = song_genres.songID
+      LEFT JOIN genres ON song_genres.genreID = genres.id
+      LEFT JOIN song_albums ON songs.id = song_albums.songID
+      LEFT JOIN albums ON song_albums.albumID = albums.id
+      WHERE genres.name IN (${genres.map(() => '?').join(',')})
+      GROUP BY songs.id
+      ORDER BY RAND()
+      LIMIT 20
+    `;
+
+    const [rows] = await db.execute(query, genres);
+    return rows;
+  }
+
 }
+
 
 module.exports = SongModel;

@@ -1,5 +1,5 @@
 const ArtistModel = require('../models/artistModel');
-const {uploadToStorage}=require("../middlewares/uploadMiddleware");
+const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
 const getAllArtists = async (req, res) => {
   const page = parseInt(req.query.page) || 1; 
@@ -47,9 +47,9 @@ const createArtist = async (req, res) => {
     const newArtist = { name, role, biography };
 
     if (req.file) {
-      const avatarFile = req.file; 
+      const avatarFile = req.file;
       const imagePublicUrl = await uploadToStorage(avatarFile, 'artists/images');
-      newArtist.avatar = imagePublicUrl; 
+      newArtist.avatar = imagePublicUrl;
     }
 
     const artistId = await ArtistModel.createArtist(newArtist);
@@ -69,27 +69,27 @@ const updateArtist = async (req, res) => {
   try {
     const { id } = req.params;
     const existingArtist = await ArtistModel.getArtistById(id);
-    
+
     if (!existingArtist) {
       return res.status(404).json({ message: 'Artist not found' });
     }
 
     const updatedArtist = {
       name: req.body.name || existingArtist.name,
-      avatar: existingArtist.avatar, 
+      avatar: existingArtist.avatar,
       role: req.body.role || existingArtist.role,
       biography: req.body.biography || existingArtist.biography,
     };
 
     if (req.file) {
-      const avatarFile = req.file; 
+      const avatarFile = req.file;
       const imagePublicUrl = await uploadToStorage(avatarFile, 'artists/images');
-      updatedArtist.avatar = imagePublicUrl; 
+      updatedArtist.avatar = imagePublicUrl;
     }
 
     await ArtistModel.updateArtist(id, updatedArtist);
     res.status(200).json({ message: "Artist updated successfully", artist: updatedArtist });
-    
+
   } catch (error) {
     console.error("Error updating artist:", error);
     res.status(500).json({ message: "Server error", error: error.message });
@@ -123,6 +123,7 @@ const deleteArtist = async (req, res) => {
     res.status(500).json({ message: 'Error deleting artist', error: error.message });
   }
 };
+
 
 
 

@@ -1,15 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const playlistController = require('../controllers/playlistController');
-const auth = require('../middlewares/authMiddleware'); // Assuming you have auth middleware
+const { authenticateUser } = require('../middlewares/authMiddleware');
+const multer = require('multer');
 
-router.post('/', auth, playlistController.createPlaylist);
-router.post('/:playlistId/songs', auth, playlistController.addSongToPlaylist);
-router.get('/:playlistId', playlistController.getPlaylistDetails);
-router.delete('/:playlistId/songs/:songId', auth, playlistController.removeSongFromPlaylist);
+const upload = multer({ storage: multer.memoryStorage() });
+
+// Add authenticateUser middleware to all playlist routes
+router.use(authenticateUser);
+
+router.get('/', playlistController.getAllPlaylists);
+router.get('/:id', playlistController.getPlaylistById);
+router.post('/', upload.single('image'), playlistController.createPlaylist);
+router.put('/:id', upload.single('image'), playlistController.updatePlaylist);
+router.delete('/:id', playlistController.deletePlaylist);
 
 module.exports = router;
-
 // POST /api/playlists
 // {
 //   "name": "My Favorite Songs",

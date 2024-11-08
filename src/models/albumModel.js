@@ -80,7 +80,7 @@ class AlbumModel {
     return rows;
   }
 
-  
+
 }
 
 module.exports = AlbumModel;

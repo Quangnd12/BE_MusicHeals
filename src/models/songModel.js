@@ -249,7 +249,7 @@ class SongModel {
   static async getSongsByMood(mood) {
     // Map mood với các thể loại nhạc tương ứng
     const moodGenreMap = {
-      'happy': ['Pop', 'Dance', 'Electronic', 'Disco'],
+      'happy': ['Pop', 'Dance', 'Electronic', 'Disco', 'Nhạc trẻ'],
       'sad': ['Ballad', 'Blues', 'Jazz', 'Soul'],
       'energetic': ['Rock', 'Hip Hop', 'EDM', 'Metal'],
       'relaxed': ['Acoustic', 'Classical', 'Ambient', 'Folk'],

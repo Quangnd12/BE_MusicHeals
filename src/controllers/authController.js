@@ -51,18 +51,23 @@ class AuthController {
 
   static async createUserWithGoogle(req, res) {
     try {
-      const { username, email, avatar, role = "user" } = req.body;
+      const { idToken, username, avatar, role = "user" } = req.body;
 
-      // Kiểm tra xem thông tin cần thiết đã được cung cấp chưa
-      if (!email) {
-        return res.status(400).json({ message: "Email là bắt buộc" });
+      // Xác thực idToken từ Google
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const email = decodedToken.email;
+
+      // Kiểm tra nếu email đã tồn tại
+      const emailUsed = await UserModel.isEmailUsed(email);
+      if (emailUsed) {
+        return res.status(400).json({ message: "Email đã được sử dụng" });
       }
 
       // Tạo người dùng mới thông qua Google
       const userId = await UserModel.createUserWithGoogle({
-        username,
+        username: username || `user_${decodedToken.uid}`,
         email,
-        avatar,
+        avatar: avatar || decodedToken.picture,
         role,
       });
 
@@ -70,9 +75,7 @@ class AuthController {
       const token = jwt.sign(
         { id: userId, email, role },
         process.env.JWT_SECRET,
-        {
-          expiresIn: process.env.JWT_EXPIRE,
-        }
+        { expiresIn: process.env.JWT_EXPIRE }
       );
 
       res.status(201).json({
@@ -87,7 +90,8 @@ class AuthController {
         },
       });
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      console.error("Error in Google Sign-Up:", error);
+      res.status(500).json({ message: "Đăng ký Google thất bại", error });
     }
   }
 
@@ -288,64 +292,63 @@ class AuthController {
 
   static async googleLogin(req, res) {
     const { idToken } = req.body;
-
+ 
+    if (!idToken || typeof idToken !== 'string') {
+       return res.status(400).json({ message: "Token không hợp lệ" });
+    }
+ 
     try {
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      const { uid, email, name, picture } = decodedToken;
-
-      // Tìm người dùng qua email
-      let user = await UserModel.getUserByEmail(email);
-
-      // Nếu người dùng chưa tồn tại, tạo mới
-      if (!user) {
-        const newUserData = {
-          username: name || `user_${uid}`,
-          password: null, // Không lưu mật khẩu cho người dùng Google
-          role: "user",
-          email,
-          avatar: picture || null,
-        };
-
-        const newUserId = await UserModel.createUser(newUserData);
-        user = { id: newUserId, ...newUserData };
-      }
-
-      // Tạo JWT token
-      const token = generateToken({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      });
-
-      // Lưu token vào cookie
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-
-      res.status(200).json({
-        message: "Login successful",
-        user: {
+       const decodedToken = await admin.auth().verifyIdToken(idToken);
+       const { uid, email, name, picture } = decodedToken;
+ 
+       // Tìm hoặc tạo người dùng
+       let user = await UserModel.getUserByEmail(email);
+       if (!user) {
+          const newUserData = {
+             username: name || `user_${uid}`,
+             password: null, 
+             role: "user",
+             email,
+             avatar: picture || null,
+          };
+          const newUserId = await UserModel.createUser(newUserData);
+          user = { id: newUserId, ...newUserData };
+       }
+ 
+       // Tạo JWT token
+       const token = generateToken({
           id: user.id,
           email: user.email,
           role: user.role,
-          avatar: user.avatar,
-          username: user.username,
-        },
-        token,
-      });
+       });
+ 
+       // Lưu token vào cookie
+       res.cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+       });
+ 
+       res.status(200).json({
+          message: "Đăng nhập thành công",
+          user: {
+             id: user.id,
+             email: user.email,
+             role: user.role,
+             avatar: user.avatar,
+             username: user.username,
+          },
+          token,
+       });
     } catch (error) {
-      console.error("Error in Google login:", error);
-
-      if (error.code === "auth/invalid-id-token") {
-        return res.status(400).json({ message: "Invalid ID token" });
-      }
-
-      res.status(500).json({ message: "Server error", error });
+       console.error("Error in Google login:", error);
+       if (error.code === "auth/invalid-id-token") {
+          return res.status(400).json({ message: "Token không hợp lệ" });
+       }
+       res.status(500).json({ message: "Lỗi máy chủ", error });
     }
-  }
-
+ }
+ 
   static async logout(req, res) {
     try {
       // Xóa cookie chứa token

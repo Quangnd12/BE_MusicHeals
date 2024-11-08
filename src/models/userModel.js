@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const bcrypt = require("bcryptjs");
+const admin = require("firebase-admin");
 
 class UserModel {
   static async createUser(userData) {
@@ -19,7 +20,7 @@ class UserModel {
     }
 
     // Mã hóa mật khẩu
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
     const query =
       "INSERT INTO users (username, password, role, birthday, email, avatar) VALUES (?, ?, ?, ?, ?, ?)";
@@ -35,20 +36,59 @@ class UserModel {
   }
 
   static async createUserWithGoogle(userData) {
-    const { username = null, email, avatar = null, role } = userData;
+    const { username = null, email, avatar = null, role, idToken } = userData;
 
-    // Kiểm tra xem email đã được sử dụng chưa
-    const emailUsed = await UserModel.isEmailUsed(email);
-    if (emailUsed) {
-      throw new Error("Email đã được sử dụng"); // Ném ra lỗi nếu email đã tồn tại
+    try {
+      // Xác thực ID token từ Firebase để xác nhận tính hợp lệ của token
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const googleEmail = decodedToken.email;
+
+      if (googleEmail !== email) {
+        throw new Error("Email không khớp với token xác thực");
+      }
+
+      // Kiểm tra xem email đã được sử dụng chưa
+      const emailUsed = await UserModel.isEmailUsed(email);
+      if (emailUsed) {
+        throw new Error("Email đã được sử dụng");
+      }
+
+      // Tạo người dùng mới mà không cần mật khẩu
+      const query =
+        "INSERT INTO users (username, password, role, email, avatar) VALUES (?, NULL, ?, ?, ?)";
+      const [result] = await db.execute(query, [username, role, email, avatar]);
+
+      return result.insertId;
+    } catch (error) {
+      console.error("Error in Google Sign-Up:", error);
+      throw new Error("Đăng ký Google thất bại");
     }
+  }
 
-    // Tạo người dùng mới mà không cần mật khẩu
-    const query =
-      "INSERT INTO users (username, password, role, email, avatar) VALUES (?, NULL, ?, ?, ?)";
-    const [result] = await db.execute(query, [username, role, email, avatar]);
+  static async loginWithGoogle(idToken) {
+    try {
+      // Xác thực ID token từ Firebase để lấy thông tin người dùng
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const email = decodedToken.email;
 
-    return result.insertId;
+      // Kiểm tra xem người dùng có tồn tại trong cơ sở dữ liệu không
+      const user = await UserModel.getUserByEmail(email);
+      if (!user) {
+        throw new Error("Người dùng chưa đăng ký");
+      }
+
+      // Trả về thông tin người dùng cho frontend (có thể bao gồm token hoặc dữ liệu khác)
+      return {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+        role: user.role,
+      };
+    } catch (error) {
+      console.error("Error in Google Login:", error);
+      throw new Error("Đăng nhập Google thất bại");
+    }
   }
 
   static async getTotalUsersCount() {
@@ -177,13 +217,13 @@ class UserModel {
 
   static async setResetToken(id, resetTokenHash, resetTokenExpiry) {
     const connection = await db.getConnection();
-    
+
     try {
       await connection.beginTransaction();
 
       // Clear any existing token
       await connection.execute(
-        'UPDATE users SET resetToken = NULL, resetTokenExpiry = NULL WHERE id = ?',
+        "UPDATE users SET resetToken = NULL, resetTokenExpiry = NULL WHERE id = ?",
         [id]
       );
 
@@ -195,28 +235,23 @@ class UserModel {
             updatedAt = CURRENT_TIMESTAMP 
         WHERE id = ?`;
 
-      await connection.execute(query, [
-        resetTokenHash,
-        resetTokenExpiry,
-        id
-      ]);
+      await connection.execute(query, [resetTokenHash, resetTokenExpiry, id]);
 
       // Verify token was set
       const [result] = await connection.execute(
-        'SELECT resetToken FROM users WHERE id = ?',
+        "SELECT resetToken FROM users WHERE id = ?",
         [id]
       );
 
       if (!result[0]?.resetToken) {
-        throw new Error('Failed to set reset token');
+        throw new Error("Failed to set reset token");
       }
 
       await connection.commit();
-      console.log('Token successfully saved in DB:', result[0].resetToken);
-      
+      console.log("Token successfully saved in DB:", result[0].resetToken);
     } catch (error) {
       await connection.rollback();
-      console.error('Error setting reset token:', error);
+      console.error("Error setting reset token:", error);
       throw error;
     } finally {
       connection.release();
@@ -231,30 +266,30 @@ class UserModel {
         AND resetTokenExpiry > CURRENT_TIMESTAMP
         AND resetToken IS NOT NULL`;
 
-      console.log('Searching for token in DB:', resetTokenHash);
+      console.log("Searching for token in DB:", resetTokenHash);
 
       const [rows] = await db.execute(query, [resetTokenHash]);
 
       // Enhanced debugging
       if (rows.length > 0) {
-        console.log('Found user with matching token. User ID:', rows[0].id);
-        console.log('Token expiry:', rows[0].resetTokenExpiry);
+        console.log("Found user with matching token. User ID:", rows[0].id);
+        console.log("Token expiry:", rows[0].resetTokenExpiry);
       } else {
-        console.log('No user found with this token');
-        
+        console.log("No user found with this token");
+
         // Debug query to check all active tokens
         const [allTokens] = await db.execute(`
           SELECT id, resetToken, resetTokenExpiry 
           FROM users 
           WHERE resetToken IS NOT NULL
         `);
-        
-        console.log('All active tokens in DB:', allTokens);
+
+        console.log("All active tokens in DB:", allTokens);
       }
 
       return rows[0];
     } catch (error) {
-      console.error('Error in getUserByResetToken:', error);
+      console.error("Error in getUserByResetToken:", error);
       throw error;
     }
   }
@@ -278,17 +313,17 @@ class UserModel {
 
       // Verify token was cleared
       const [result] = await db.execute(
-        'SELECT resetToken FROM users WHERE id = ?',
+        "SELECT resetToken FROM users WHERE id = ?",
         [id]
       );
 
       if (result[0]?.resetToken !== null) {
-        throw new Error('Failed to clear reset token');
+        throw new Error("Failed to clear reset token");
       }
 
-      console.log('Reset token cleared successfully for user:', id);
+      console.log("Reset token cleared successfully for user:", id);
     } catch (error) {
-      console.error('Error clearing reset token:', error);
+      console.error("Error clearing reset token:", error);
       throw error;
     }
   }

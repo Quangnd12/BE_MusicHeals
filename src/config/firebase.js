@@ -4,6 +4,7 @@ const serviceAccount = require('../../be-musicheals-a6d7a-firebase-adminsdk-epim
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   storageBucket: "gs://be-musicheals-a6d7a.appspot.com" // Your storage bucket
+  // storageBucket: "be-musicheals-a6d7a.appspot.com" // Your storage bucket
 });
 
 // Initialize Firestore and Storage

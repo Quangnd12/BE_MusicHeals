@@ -5,66 +5,96 @@ const admin = require("firebase-admin");
 class UserModel {
   static async createUser(userData) {
     const {
-      username = null,
+      username,
       password,
       role,
       birthday = null,
       email,
-      avatar = null,
+      avatar = "https://storage.googleapis.com/music-app/default-avatar.png", // Thêm avatar mặc định
     } = userData;
 
-    // Kiểm tra xem email đã được sử dụng chưa
+    // Kiểm tra email đã được sử dụng
     const emailUsed = await UserModel.isEmailUsed(email);
     if (emailUsed) {
-      throw new Error("Email đã được sử dụng"); // Ném ra lỗi nếu email đã tồn tại
+      throw new Error("Email đã được sử dụng");
     }
 
     // Mã hóa mật khẩu
-    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const query =
-      "INSERT INTO users (username, password, role, birthday, email, avatar) VALUES (?, ?, ?, ?, ?, ?)";
+    const query = `
+      INSERT INTO users 
+      (username, password, role, birthday, email, avatar, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `;
+    
     const [result] = await db.execute(query, [
       username,
       hashedPassword,
-      role,
+      role || 'user', // Thêm role mặc định
       birthday,
       email,
       avatar,
     ]);
+
     return result.insertId;
   }
 
   static async createUserWithGoogle(userData) {
-    const { username = null, email, avatar = null, role, idToken } = userData;
-
+    const { username, email, avatar, role, idToken } = userData;
+   
     try {
-      // Xác thực ID token từ Firebase để xác nhận tính hợp lệ của token
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      const googleEmail = decodedToken.email;
-
-      if (googleEmail !== email) {
-        throw new Error("Email không khớp với token xác thực");
+      // Verify the Firebase ID token
+      let decodedToken;
+      try {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (tokenError) {
+        console.error("Token verification error:", tokenError);
+        throw new Error("Invalid token");
       }
 
-      // Kiểm tra xem email đã được sử dụng chưa
+      const googleEmail = decodedToken.email;
+     
+      // Verify email matches
+      if (googleEmail !== email) {
+        throw new Error("Email mismatch");
+      }
+ 
+      // Check if email exists
       const emailUsed = await UserModel.isEmailUsed(email);
       if (emailUsed) {
-        throw new Error("Email đã được sử dụng");
+        // If email exists, return the existing user's ID
+        const [existingUser] = await db.execute(
+          'SELECT id FROM users WHERE email = ?',
+          [email]
+        );
+        return existingUser[0].id;
       }
-
-      // Tạo người dùng mới mà không cần mật khẩu
-      const query =
-        "INSERT INTO users (username, password, role, email, avatar) VALUES (?, NULL, ?, ?, ?)";
-      const [result] = await db.execute(query, [username, role, email, avatar]);
-
+      console.log("username:", username);
+      console.log("email:", email);
+      console.log("avatar:", avatar);
+      console.log("role:", role);
+      
+      // Create new user
+      const query = `
+        INSERT INTO users (username, email, avatar, role, password)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+     
+      const [result] = await db.execute(query, [
+        username,
+        email,
+        avatar,
+        role || 'user',
+        ''
+      ]);
+ 
       return result.insertId;
     } catch (error) {
       console.error("Error in Google Sign-Up:", error);
-      throw new Error("Đăng ký Google thất bại");
+      throw error;
     }
   }
-
   static async loginWithGoogle(idToken) {
     try {
       // Xác thực ID token từ Firebase để lấy thông tin người dùng
@@ -210,6 +240,10 @@ class UserModel {
   }
 
   static async isEmailUsed(email) {
+    if (!email) { // Kiểm tra nếu `email` là `undefined` hoặc `null`
+      throw new Error("Email không được cung cấp");
+    }
+
     const query = "SELECT * FROM users WHERE email = ?";
     const [rows] = await db.execute(query, [email]);
     return rows.length > 0; // Trả về true nếu có ít nhất một người dùng với email này

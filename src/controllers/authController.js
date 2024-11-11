@@ -5,6 +5,7 @@ const bcrypt = require("bcryptjs");
 const { admin } = require("../config/firebase");
 const sendEmail = require("../utils/sendEmail");
 const { bucket } = require("../config/firebase");
+const db = require('../config/db')
 const { format } = require("util");
 const jwt = require("jsonwebtoken");
 const path = require("path");
@@ -49,49 +50,60 @@ class AuthController {
     }
   }
 
-  static async createUserWithGoogle(req, res) {
+ static async createUserWithGoogle(req, res) {
     try {
-      const { idToken, username, avatar, role = "user" } = req.body;
-
-      // Xác thực idToken từ Google
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      const email = decodedToken.email;
-
-      // Kiểm tra nếu email đã tồn tại
-      const emailUsed = await UserModel.isEmailUsed(email);
-      if (emailUsed) {
-        return res.status(400).json({ message: "Email đã được sử dụng" });
+      const { idToken, userData } = req.body;
+      
+      if (!idToken) {
+        return res.status(400).json({ message: "Missing ID token" });
       }
 
-      // Tạo người dùng mới thông qua Google
+      // Verify the token first
+      let decodedToken;
+      try {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (tokenError) {
+        console.error("Token verification error:", tokenError);
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      // Create or get existing user
       const userId = await UserModel.createUserWithGoogle({
-        username: username || `user_${decodedToken.uid}`,
-        email,
-        avatar: avatar || decodedToken.picture,
-        role,
+        ...userData,
+        email: decodedToken.email,
+        idToken
       });
 
-      // Tạo JWT token cho người dùng mới
+      // Get user details after creation/retrieval
+      const [userDetails] = await db.execute(
+        'SELECT id, username, email, avatar, role FROM users WHERE id = ?',
+        [userId]
+      );
+
+      const user = userDetails[0];
+
+      // Create JWT token
       const token = jwt.sign(
-        { id: userId, email, role },
+        { 
+          id: user.id, 
+          email: user.email, 
+          role: user.role 
+        },
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRE }
       );
 
       res.status(201).json({
-        message: "Đăng ký thành công",
+        message: "Google authentication successful",
         token,
-        user: {
-          id: userId,
-          username,
-          email,
-          avatar,
-          role,
-        },
+        user
       });
     } catch (error) {
       console.error("Error in Google Sign-Up:", error);
-      res.status(500).json({ message: "Đăng ký Google thất bại", error });
+      res.status(500).json({ 
+        message: error.message || "Google authentication failed",
+        error: process.env.NODE_ENV === 'development' ? error : undefined
+      });
     }
   }
 

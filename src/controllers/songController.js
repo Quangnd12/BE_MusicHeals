@@ -73,7 +73,7 @@ const getSongById = async (req, res) => {
   }
 };
 
-// Tạo bài hát mới
+
 const createSong = async (req, res) => {
   try {
     const { title, artistID, albumID, genreID, lyrics, duration, releaseDate, is_explicit } = req.body;

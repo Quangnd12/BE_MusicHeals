@@ -2,18 +2,31 @@ const db = require('../config/db');
 
 class CountryModel {
 
-  static async getAllCountries(pagination = false, page , limit ) {
-    if (pagination) {
-        const offset = (page - 1) * limit;
-        const query = `SELECT * FROM countries LIMIT ${limit} OFFSET ${offset}`;
-        const [rows] = await db.execute(query);
-        return rows;
-    } else {
-        const query = `SELECT * FROM countries`;
-        const [rows] = await db.execute(query);
-        return rows;
+  static async getAllCountries(pagination = false, page, limit, searchName) {
+
+    let query = `SELECT * FROM countries`;
+
+    const conditions = [];
+
+    if (searchName) {
+      conditions.push(`countries.name LIKE ?`);
     }
-}
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    if (pagination) {
+      const offset = (page - 1) * limit;
+      query += ` LIMIT ${limit} OFFSET ${offset}`;
+    }
+    
+
+    const params = [];
+    if (searchName) params.push(`%${searchName}%`);
+    const [rows] = await db.execute(query, params);
+    return rows;
+
+  }
 
   static async getCountryCount() {
     const query = 'SELECT COUNT(*) as count FROM countries';

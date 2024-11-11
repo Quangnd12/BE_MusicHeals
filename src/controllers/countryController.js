@@ -2,13 +2,14 @@ const CountryModel = require('../models/countryModel');
 
 
 const getAllCountries = async (req, res) => {
-  const page = parseInt(req.query.page);
-  const limit = parseInt(req.query.limit);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 5;
+  const searchName = req.query.searchName || '';
 
   if (!page && !limit) {
     try {
-      const countries = await CountryModel.getAllCountries(false);
-      return res.status(200).json({countries});
+      const countries = await CountryModel.getAllCountries(false, null, null, searchName);
+      return res.status(200).json({ countries });
     } catch (error) {
       console.error(error);
       return res.status(500).json({ message: 'Error retrieving countries', error: error.message });
@@ -20,15 +21,30 @@ const getAllCountries = async (req, res) => {
   }
 
   try {
-    const countries = await CountryModel.getAllCountries(true, page, limit);
+
+    let countries;
+    if (!req.query.page || !req.query.limit) {
+      countries = await CountryModel.getAllCountries(false, null, null, searchName);
+      return res.status(200).json({ countries });
+    }
+
+    countries = await CountryModel.getAllCountries(true, page, limit, searchName);
     const totalCount = await CountryModel.getCountryCount();
     const totalPages = Math.ceil(totalCount / limit);
-    return res.status(200).json({ countries, totalPages });
+
+    return res.status(200).json({
+      countries,
+      totalPages,
+      totalCount,
+      limit,
+      currentPage: page
+    });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error retrieving countries', error: error.message });
+    return res.status(500).json({ message: 'Error retrieving countries', error: error.message });
   }
 };
+
 
 
 
@@ -108,4 +124,4 @@ const deleteCountry = async (req, res) => {
   }
 };
 
-module.exports = { getAllCountries, getCountryById, createCountry, updateCountry, deleteCountry};
+module.exports = { getAllCountries, getCountryById, createCountry, updateCountry, deleteCountry };

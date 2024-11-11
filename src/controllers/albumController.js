@@ -4,23 +4,40 @@ const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
 const getAllAlbums = async (req, res) => {
   const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
+  const limit = parseInt(req.query.limit) || 5;
+  const searchTitle = req.query.searchTitle || '';
 
   if (page < 1 || limit < 1) {
     return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
   }
 
   try {
-    const albums = await AlbumModel.getAllAlbums(page, limit);
-    const totalCount = await AlbumModel.getAlbumCount();
+    let albums;
+    if (!req.query.page || !req.query.limit) {
+      // If no pagination parameters, return all albums
+      albums = await AlbumModel.getAllAlbums(false, null, null, searchTitle);
+      return res.status(200).json({ albums });
+    }
+
+    // Get paginated albums
+    albums = await AlbumModel.getAllAlbums(true, page, limit, searchTitle);
+
+    // Get total count for pagination
+    const totalCount = await AlbumModel.getAlbumCount(searchTitle);
     const totalPages = Math.ceil(totalCount / limit);
-    res.json({ albums, totalPages });
+
+    return res.status(200).json({
+      albums,
+      totalPages,
+      totalCount,
+      limit,
+      currentPage: page
+    });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Error retrieving albums', error: error.message });
+    return res.status(500).json({ message: 'Error retrieving albums', error: error.message });
   }
 };
-
 const getAlbumById = async (req, res) => {
   try {
     const { id } = req.params;

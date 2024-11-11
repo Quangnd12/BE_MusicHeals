@@ -2,18 +2,68 @@
 const db = require('../config/db');
 
 class AlbumModel {
-  static async getAllAlbums(page = 1, limit = 10) {
-    const offset = (page - 1) * limit;
-    const query = `SELECT * FROM albums LIMIT ${limit} OFFSET ${offset}`;
-    const [rows] = await db.execute(query);
-    return rows;
+ static async getAllAlbums(pagination = false, page, limit, searchTerm) {
+  let query = `
+    SELECT 
+      a.id,
+      a.title,
+      a.image,
+      a.releaseDate,
+      IFNULL(
+        GROUP_CONCAT(DISTINCT ar.id),
+        a.artistID
+      ) as artistIDs,
+      IFNULL(
+        GROUP_CONCAT(DISTINCT ar.name),
+        (SELECT name FROM artists WHERE id = a.artistID)
+      ) as artistNames
+    FROM albums a
+    LEFT JOIN album_artists aa ON a.id = aa.albumID
+    LEFT JOIN artists ar ON ar.id = aa.artistID OR ar.id = a.artistID
+  `;
+  
+  // Sửa lại điều kiện search
+  if (searchTerm) {
+    query += ` WHERE LOWER(a.title) LIKE LOWER(?)`;
   }
 
-  static async getAlbumCount() {
-    const query = 'SELECT COUNT(*) as count FROM albums';
-    const [rows] = await db.execute(query);
-    return rows[0].count;
+  query += ` GROUP BY a.id, a.title, a.image, a.releaseDate, a.artistID`;
+
+  if (pagination) {
+    const offset = (page - 1) * limit;
+    query += ` LIMIT ${limit} OFFSET ${offset}`;
   }
+  
+  const params = searchTerm ? [`%${searchTerm}%`] : [];
+  const [rows] = await db.execute(query, params);
+
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title,
+    image: row.image,
+    releaseDate: row.releaseDate,
+    artistIDs: row.artistIDs ? row.artistIDs.split(',').map(id => parseInt(id)) : [],
+    artistNames: row.artistNames ? row.artistNames.split(',') : []
+  }));
+}
+
+// Đồng thời cập nhật hàm getAlbumCount
+static async getAlbumCount(searchTerm) {
+  let query = `
+    SELECT COUNT(DISTINCT a.id) as count 
+    FROM albums a
+    LEFT JOIN album_artists aa ON a.id = aa.albumID
+    LEFT JOIN artists ar ON ar.id = aa.artistID OR ar.id = a.artistID
+  `;
+  
+  if (searchTerm) {
+    query += ' WHERE LOWER(a.title) LIKE LOWER(?)';
+  }
+  
+  const params = searchTerm ? [`%${searchTerm}%`] : [];
+  const [rows] = await db.execute(query, params);
+  return rows[0].count;
+}
 
   static async getAlbumById(id) {
     const query = 'SELECT * FROM albums WHERE id = ?';

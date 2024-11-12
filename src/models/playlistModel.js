@@ -1,236 +1,116 @@
+// playlistModel.js
 const db = require('../config/db');
 
 class PlaylistModel {
-  static async getAllPlaylists(userId, page = 1, limit = 10) {
-    const offset = (page - 1) * limit;
-    
-    // Convert parameters to numbers to ensure proper type
-    const params = [
-      Number(userId),
-      Number(limit),
-      Number(offset)
-    ];
-
+  static async createPlaylist(userId, name, description = null, isPublic = true) {
     const query = `
-      SELECT 
-        playlists.id,
-        playlists.title,
-        playlists.description,
-        playlists.image,
-        playlists.created_at,
-        playlists.updated_at,
-        playlists.userId,
-        COUNT(DISTINCT playlist_songs.songId) as song_count,
-        users.username as creator
-      FROM playlists
-      LEFT JOIN playlist_songs ON playlists.id = playlist_songs.playlistId
-      LEFT JOIN users ON playlists.userId = users.id
-      WHERE playlists.userId = ?
-      GROUP BY 
-        playlists.id,
-        playlists.title,
-        playlists.description,
-        playlists.image,
-        playlists.created_at,
-        playlists.updated_at,
-        playlists.userId,
-        users.username
-      ORDER BY playlists.created_at DESC
-      LIMIT ? OFFSET ?
+      INSERT INTO playlists (userId, name, description, isPublic, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, NOW(), NOW())
     `;
-    
-    const [rows] = await db.execute(query, params);
-    
-    // Get songs for each playlist
-    for (let playlist of rows) {
-      const songsQuery = `
-        SELECT 
-          songs.id,
-          songs.title,
-          songs.duration,
-          songs.file_song,
-          songs.image,
-          GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') as artists
-        FROM playlist_songs
-        JOIN songs ON playlist_songs.songId = songs.id
-        LEFT JOIN song_artists ON songs.id = song_artists.songId
-        LEFT JOIN artists ON song_artists.artistId = artists.id
-        WHERE playlist_songs.playlistId = ?
-        GROUP BY 
-          songs.id,
-          songs.title,
-          songs.duration,
-          songs.file_song,
-          songs.image
-      `;
-      const [songsResult] = await db.execute(songsQuery, [playlist.id]);
-      playlist.songs = songsResult;
-    }
-    
-    return rows;
+    const [result] = await db.execute(query, [userId, name, description, isPublic]);
+    return result.insertId;
   }
 
-  static async getPlaylistById(id) {
+  static async addSongToPlaylist(playlistId, songId) {
     const query = `
-      SELECT 
-        playlists.id,
-        playlists.title,
-        playlists.description,
-        playlists.image,
-        playlists.created_at,
-        playlists.updated_at,
-        playlists.userId,
-        users.username as creator
-      FROM playlists
-      LEFT JOIN users ON playlists.userId = users.id
-      WHERE playlists.id = ?
+      INSERT INTO playlist_songs (playlistId, songId, addedAt)
+      VALUES (?, ?, NOW())
     `;
-    
-    const [rows] = await db.execute(query, [Number(id)]);
-    if (!rows[0]) return null;
+    await db.execute(query, [playlistId, songId]);
+  }
 
-    // Get songs for the playlist
-    const songsQuery = `
-      SELECT 
-        songs.id,
-        songs.title,
-        songs.duration,
-        songs.file_song,
-        songs.image,
-        GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') as artists
-      FROM playlist_songs
-      JOIN songs ON playlist_songs.songId = songs.id
-      LEFT JOIN song_artists ON songs.id = song_artists.songId
-      LEFT JOIN artists ON song_artists.artistId = artists.id
-      WHERE playlist_songs.playlistId = ?
-      GROUP BY 
-        songs.id,
-        songs.title,
-        songs.duration,
-        songs.file_song,
-        songs.image
+  static async removeSongFromPlaylist(playlistId, songId) {
+    const query = `
+      DELETE FROM playlist_songs 
+      WHERE playlistId = ? AND songId = ?
     `;
-    
-    const [songs] = await db.execute(songsQuery, [Number(id)]);
-    rows[0].songs = songs;
-    
+    await db.execute(query, [playlistId, songId]);
+  }
+
+  static async getPlaylistById(playlistId) {
+    const query = `
+      SELECT p.*,
+             u.username as creatorName,
+             GROUP_CONCAT(DISTINCT s.id) as songIds,
+             GROUP_CONCAT(DISTINCT s.title) as songTitles,
+             COUNT(DISTINCT ps.songId) as totalSongs
+      FROM playlists p
+      LEFT JOIN users u ON p.userId = u.id
+      LEFT JOIN playlist_songs ps ON p.id = ps.playlistId
+      LEFT JOIN songs s ON ps.songId = s.id
+      WHERE p.id = ?
+      GROUP BY p.id
+    `;
+    const [rows] = await db.execute(query, [playlistId]);
     return rows[0];
   }
 
-  static async createPlaylist(playlistData) {
-    const {
-      title,
-      description,
-      image,
-      userId,
-      songs
-    } = playlistData;
-
-    // Start transaction
-    const connection = await db.getConnection();
-    await connection.beginTransaction();
-
-    try {
-      // Check if playlist with same title exists for this user
-      const [existingPlaylists] = await connection.execute(
-        'SELECT id FROM playlists WHERE title = ? AND userId = ?',
-        [title, Number(userId)]
-      );
-
-      if (existingPlaylists.length > 0) {
-        await connection.rollback();
-        throw new Error('Playlist with this title already exists for this user');
-      }
-
-      // Insert playlist
-      const [result] = await connection.execute(
-        'INSERT INTO playlists (title, description, image, userId, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
-        [title, description, image, Number(userId)]
-      );
-
-      const playlistId = result.insertId;
-
-      // Add songs to playlist if provided
-      if (songs && songs.length > 0) {
-        const values = songs.map(songId => [playlistId, Number(songId)]);
-        await connection.query('INSERT INTO playlist_songs (playlistId, songId) VALUES ?', [values]);
-      }
-
-      await connection.commit();
-      return playlistId;
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+  static async getUserPlaylists(userId) {
+    const query = `
+      SELECT p.*,
+             COUNT(DISTINCT ps.songId) as totalSongs
+      FROM playlists p
+      LEFT JOIN playlist_songs ps ON p.id = ps.playlistId
+      WHERE p.userId = ?
+      GROUP BY p.id
+      ORDER BY p.createdAt DESC
+    `;
+    const [rows] = await db.execute(query, [userId]);
+    return rows;
   }
 
-  static async updatePlaylist(id, playlistData) {
-    const {
-      title,
-      description,
-      image,
-      songs
-    } = playlistData;
-
-    // Start transaction
-    const connection = await db.getConnection();
-    await connection.beginTransaction();
-
-    try {
-      // Update playlist details
-      await connection.execute(
-        'UPDATE playlists SET title = ?, description = ?, image = ?, updated_at = NOW() WHERE id = ?',
-        [title, description, image, Number(id)]
-      );
-
-      // Update songs if provided
-      if (songs !== undefined) {
-        // Remove existing songs
-        await connection.execute('DELETE FROM playlist_songs WHERE playlistId = ?', [Number(id)]);
-        
-        // Add new songs
-        if (songs.length > 0) {
-          const values = songs.map(songId => [Number(id), Number(songId)]);
-          await connection.query('INSERT INTO playlist_songs (playlistId, songId) VALUES ?', [values]);
-        }
-      }
-
-      await connection.commit();
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+  static async getPublicPlaylists(page = 1, limit = 10) {
+    const offset = (page - 1) * limit;
+    const query = `
+      SELECT p.*,
+             u.username as creatorName,
+             COUNT(DISTINCT ps.songId) as totalSongs
+      FROM playlists p
+      LEFT JOIN users u ON p.userId = u.id
+      LEFT JOIN playlist_songs ps ON p.id = ps.playlistId
+      WHERE p.isPublic = true
+      GROUP BY p.id
+      ORDER BY p.createdAt DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await db.execute(query, [limit, offset]);
+    return rows;
   }
 
-  static async deletePlaylist(id) {
-    const connection = await db.getConnection();
-    await connection.beginTransaction();
-
-    try {
-      // Delete associated songs first
-      await connection.execute('DELETE FROM playlist_songs WHERE playlistId = ?', [Number(id)]);
-      // Delete playlist
-      await connection.execute('DELETE FROM playlists WHERE id = ?', [Number(id)]);
-
-      await connection.commit();
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+  static async updatePlaylist(playlistId, data) {
+    const { name, description, isPublic } = data;
+    const query = `
+      UPDATE playlists 
+      SET name = ?, description = ?, isPublic = ?, updatedAt = NOW()
+      WHERE id = ?
+    `;
+    await db.execute(query, [name, description, isPublic, playlistId]);
   }
 
-  static async getPlaylistCount(userId) {
-    const [rows] = await db.execute(
-      'SELECT COUNT(*) as count FROM playlists WHERE userId = ?',
-      [Number(userId)]
-    );
-    return rows[0].count;
+  static async deletePlaylist(playlistId) {
+    // Delete all songs from playlist first
+    await db.execute('DELETE FROM playlist_songs WHERE playlistId = ?', [playlistId]);
+    // Then delete the playlist
+    await db.execute('DELETE FROM playlists WHERE id = ?', [playlistId]);
+  }
+
+  static async getPlaylistSongs(playlistId) {
+    const query = `
+      SELECT s.*,
+             GROUP_CONCAT(DISTINCT ar.name) as artists,
+             GROUP_CONCAT(DISTINCT g.name) as genres
+      FROM songs s
+      JOIN playlist_songs ps ON s.id = ps.songId
+      LEFT JOIN song_artists sa ON s.id = sa.songId
+      LEFT JOIN artists ar ON sa.artistId = ar.id
+      LEFT JOIN song_genres sg ON s.id = sg.songId
+      LEFT JOIN genres g ON sg.genreId = g.id
+      WHERE ps.playlistId = ?
+      GROUP BY s.id
+      ORDER BY ps.addedAt DESC
+    `;
+    const [rows] = await db.execute(query, [playlistId]);
+    return rows;
   }
 }
 

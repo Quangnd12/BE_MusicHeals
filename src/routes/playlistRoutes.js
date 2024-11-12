@@ -1,36 +1,35 @@
+
+// playlistRoutes.js
 const express = require('express');
 const router = express.Router();
 const playlistController = require('../controllers/playlistController');
-const { authenticateUser } = require('../middlewares/authMiddleware');
-const multer = require('multer');
+const { authMiddleware } = require('../middlewares/authMiddleware');
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Tất cả các routes đều yêu cầu xác thực
+router.use(authMiddleware);
 
-// Add authenticateUser middleware to all playlist routes
-router.use(authenticateUser);
+// Create a new playlist
+router.post('/', playlistController.createPlaylist);
 
-router.get('/', playlistController.getAllPlaylists);
+// Add song to playlist
+router.post('/add-song', playlistController.addSongToPlaylist);
+
+// Remove song from playlist
+router.delete('/:playlistId/songs/:songId', playlistController.removeSongFromPlaylist);
+
+// Get playlist by ID
 router.get('/:id', playlistController.getPlaylistById);
-router.post('/', upload.single('image'), playlistController.createPlaylist);
-router.put('/:id', upload.single('image'), playlistController.updatePlaylist);
+
+// Get user's playlists
+router.get('/user/me', playlistController.getUserPlaylists);
+
+// Get public playlists
+router.get('/public/all', playlistController.getPublicPlaylists);
+
+// Update playlist
+router.put('/:id', playlistController.updatePlaylist);
+
+// Delete playlist
 router.delete('/:id', playlistController.deletePlaylist);
 
 module.exports = router;
-// POST /api/playlists
-// {
-//   "name": "My Favorite Songs",
-//   "description": "A collection of my favorite songs",
-//   "isPublic": true
-// }
-
-// // Add song to playlist
-// POST /api/playlists/1/songs
-// {
-//   "songId": 1
-// }
-
-// // Get playlist details
-// GET /api/playlists/1
-
-// // Remove song from playlist
-// DELETE /api/playlists/1/songs/1

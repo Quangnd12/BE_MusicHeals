@@ -64,6 +64,7 @@ app.use('/api/playlists', playlistRoutes);
 app.use("/api/countries", countryRoutes);
 app.use('/api/song_artist', songArtistRoutes);
 
+app.use('/api/playlists', playlistRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

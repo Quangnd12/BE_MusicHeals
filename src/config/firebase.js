@@ -3,7 +3,7 @@ const serviceAccount = require('../../be-musicheals-a6d7a-firebase-adminsdk-epim
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  storageBucket: "be-musicheals-a6d7a.appspot.com" // Your storage bucket
+  storageBucket: "gs://be-musicheals-a6d7a.appspot.com" // Your storage bucket
 });
 
 // Initialize Firestore and Storage
@@ -11,4 +11,4 @@ const db = admin.firestore();
 const bucket = admin.storage().bucket(); // Get a reference to the storage bucket
 const storage = admin.storage();
 
-module.exports = { admin, db, bucket,storage }; // Export the bucket
+module.exports = { admin, db, bucket, storage }; // Export the bucket

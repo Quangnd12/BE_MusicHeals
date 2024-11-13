@@ -1,4 +1,5 @@
 const SongModel = require('../models/songModel');
+
 const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 const { bucket } = require("../config/firebase");
 
@@ -248,9 +249,62 @@ const deleteSong = async (req, res) => {
     console.error('Error deleting genre:', error);
     res.status(500).json({ message: 'Error deleting genre', error: error.message });
   }
+
+
+};
+
+// lấy các bài hát theo khoảng thời lượng (duration) cụ thể
+const getSongsByDuration = async (req, res) => {
+  try {
+    const { minDuration, maxDuration } = req.query;
+
+    // Validate parameters
+    if (!minDuration || !maxDuration) {
+      return res.status(400).json({
+        message: 'Both minDuration and maxDuration are required (in seconds)'
+      });
+    }
+
+    const min = parseInt(minDuration);
+    const max = parseInt(maxDuration);
+
+    if (isNaN(min) || isNaN(max)) {
+      return res.status(400).json({
+        message: 'Duration values must be numbers'
+      });
+    }
+
+    if (min > max) {
+      return res.status(400).json({
+        message: 'minDuration cannot be greater than maxDuration'
+      });
+    }
+
+    const songs = await SongModel.getSongsByDuration(min, max);
+    res.json(songs);
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error retrieving songs',
+      error: error.message
+    });
+  }
+};
+const getSongsByMood = async (req, res) => {
+  try {
+    const { mood } = req.query;
+    if (!mood) {
+      return res.status(400).json({ message: 'Mood parameter is required' });
+    }
+
+    const songs = await SongModel.getSongsByMood(mood);
+    res.json(songs);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving songs', error: error.message });
+  }
+
 };
 
 
 
 
-module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong };
+module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong, getSongsByDuration, getSongsByMood };

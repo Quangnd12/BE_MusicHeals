@@ -5,8 +5,11 @@ const bcrypt = require("bcryptjs");
 const { admin } = require("../config/firebase");
 const sendEmail = require("../utils/sendEmail");
 const { bucket } = require("../config/firebase");
+const db = require('../config/db')
 const { format } = require("util");
+const jwt = require("jsonwebtoken");
 const path = require("path");
+const crypto = require("crypto");
 
 class AuthController {
   static async register(req, res) {
@@ -47,8 +50,66 @@ class AuthController {
     }
   }
 
+ static async createUserWithGoogle(req, res) {
+    try {
+      const { idToken, userData } = req.body;
+      
+      if (!idToken) {
+        return res.status(400).json({ message: "Missing ID token" });
+      }
+
+      // Verify the token first
+      let decodedToken;
+      try {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (tokenError) {
+        console.error("Token verification error:", tokenError);
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      // Create or get existing user
+      const userId = await UserModel.createUserWithGoogle({
+        ...userData,
+        email: decodedToken.email,
+        idToken
+      });
+
+      // Get user details after creation/retrieval
+      const [userDetails] = await db.execute(
+        'SELECT id, username, email, avatar, role FROM users WHERE id = ?',
+        [userId]
+      );
+
+      const user = userDetails[0];
+
+      // Create JWT token
+      const token = jwt.sign(
+        { 
+          id: user.id, 
+          email: user.email, 
+          role: user.role 
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRE }
+      );
+
+      res.status(201).json({
+        message: "Google authentication successful",
+        token,
+        user
+      });
+    } catch (error) {
+      console.error("Error in Google Sign-Up:", error);
+      res.status(500).json({ 
+        message: error.message || "Google authentication failed",
+        error: process.env.NODE_ENV === 'development' ? error : undefined
+      });
+    }
+  }
+
   static async login(req, res) {
     const { email, password, rememberMe } = req.body;
+    console.log("Request body:", req.body);
     try {
       console.log("Attempting to log in with email:", email);
 
@@ -75,7 +136,7 @@ class AuthController {
         maxAge: maxAge,
       });
 
-      res.status(200).json({ message: "Login successful", user, token, });
+      res.status(200).json({ message: "Login successful", user, token });
     } catch (error) {
       console.error("Error during login:", error); // In ra lỗi để debug
       res.status(500).json({ message: "Server error", error });
@@ -91,74 +152,72 @@ class AuthController {
   static async updateUser(req, res) {
     const { id } = req.params;
     const userData = req.body;
+    const updatedAt = new Date();
 
     try {
-      // Lấy thông tin người dùng hiện tại
       const user = await UserModel.getUserById(id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Xử lý cập nhật avatar nếu có file mới
       if (req.file) {
-        // Xử lý xóa ảnh cũ nếu có
+        // Xóa ảnh cũ
         if (user.avatar && user.avatar.includes("firebase")) {
           const oldImagePath = user.avatar.split("/o/")[1].split("?")[0];
           try {
             await bucket.file(decodeURIComponent(oldImagePath)).delete();
           } catch (error) {
             console.log("Error deleting old image:", error);
-            // Không return lỗi ở đây, tiếp tục upload ảnh mới
           }
         }
 
-        // Tạo tên file mới với userId để tránh trùng lặp
         const timestamp = Date.now();
         const fileName = `avatars/${id}_${timestamp}_${path.basename(
           req.file.originalname
         )}`;
         const blob = bucket.file(fileName);
-
-        // Tạo stream để upload file
         const blobStream = blob.createWriteStream({
-          metadata: {
-            contentType: req.file.mimetype,
-          },
+          metadata: { contentType: req.file.mimetype },
         });
 
-        // Xử lý lỗi trong quá trình upload
-        blobStream.on("error", (error) => {
-          console.error("Upload error:", error);
-          return res
-            .status(500)
-            .json({ message: "Unable to upload image", error });
-        });
-
-        // Khi upload hoàn tất
-        blobStream.on("finish", async () => {
-          // Tạo URL công khai cho file
-          const publicUrl = format(
-            `https://storage.googleapis.com/${bucket.name}/${blob.name}`
-          );
-
-          // Cập nhật URL avatar mới vào database
-          userData.avatar = publicUrl; // Thay đổi avatar mới trong userData
-
-          await UserModel.updateUser(id, userData);
-          res.status(200).json({
-            message: "User updated successfully",
-            avatarUrl: publicUrl,
+        return new Promise((resolve, reject) => {
+          blobStream.on("error", (error) => {
+            console.error("Upload error:", error);
+            reject(error);
           });
-        });
 
-        // Ghi dữ liệu file vào stream
-        blobStream.end(req.file.buffer);
+          blobStream.on("finish", async () => {
+            try {
+              // Make the file public
+              await blob.makePublic();
+
+              // Get public URL
+              const publicUrl = format(
+                `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+              );
+              userData.avatar = publicUrl;
+              userData.updatedAt = updatedAt;
+
+              await UserModel.updateUser(id, userData);
+              resolve(
+                res.status(200).json({
+                  message: "User updated successfully",
+                  avatarUrl: publicUrl,
+                })
+              );
+            } catch (error) {
+              reject(error);
+            }
+          });
+
+          blobStream.end(req.file.buffer);
+        });
       } else {
-        // Nếu không có file mới, chỉ cập nhật thông tin người dùng
+        userData.updatedAt = updatedAt;
         await UserModel.updateUser(id, userData);
         res.status(200).json({
           message: "User updated successfully",
-          updatedAt: updatedUser.updatedAt,
+          updatedAt,
         });
       }
     } catch (error) {
@@ -177,82 +236,131 @@ class AuthController {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Xóa người dùng
+      // Xóa ảnh đại diện từ Firebase Storage nếu có
+      if (user.avatar && user.avatar.includes("firebase")) {
+        const imagePath = user.avatar.split("/o/")[1].split("?")[0]; // Lấy đường dẫn ảnh trên Storage
+        try {
+          await bucket.file(decodeURIComponent(imagePath)).delete();
+          console.log("User avatar deleted from Firebase Storage");
+        } catch (error) {
+          console.error("Error deleting avatar from Firebase Storage:", error);
+          return res
+            .status(500)
+            .json({ message: "Failed to delete user avatar", error });
+        }
+      }
+
+      // Xóa người dùng từ cơ sở dữ liệu
       await UserModel.deleteUser(id);
 
-      // Trả về thông báo thành công
       res.status(200).json({ message: "User deleted successfully" });
     } catch (error) {
+      console.error("Error deleting user:", error);
       res.status(500).json({ message: "Server error", error });
     }
   }
 
   static async getAllUsers(req, res) {
-    const users = await UserModel.getAllUsers();
-    res.status(200).json(users);
-  }
-
-  static async getPaginatedUsers(req, res) {
     try {
-      const page = parseInt(req.query.page) || 1; // Lấy số trang từ query string
-      const users = await UserModel.getPaginatedUsers(page);
-      const totalCount = await UserModel.getTotalUsersCount(); // Lấy tổng số người dùng
+      const page = parseInt(req.query.page) || 0; // if page=0, get all users
+      const limit = parseInt(req.query.limit) || 5;
+      const search = req.query.search || "";
+      const sort = req.query.sort || "createdAt";
+      const order = req.query.order?.toLowerCase() === "desc" ? "DESC" : "ASC";
 
-      const totalPages = Math.ceil(totalCount / 5); // Tính tổng số trang
-
-      res.status(200).json({
-        users,
-        currentPage: page,
-        totalPages,
-        totalCount,
+      const result = await UserModel.getAllUsers({
+        page,
+        limit,
+        search,
+        sort,
+        order,
       });
+
+      // If pagination is requested (page > 0)
+      if (page > 0) {
+        res.status(200).json({
+          message: "Users retrieved successfully",
+          data: result.users,
+          pagination: {
+            total: result.total,
+            page: result.page,
+            totalPages: result.totalPages,
+            limit: result.limit,
+          },
+        });
+      } else {
+        // If all users are requested (page = 0)
+        res.status(200).json({
+          message: "All users retrieved successfully",
+          data: result.users,
+          total: result.total,
+        });
+      }
     } catch (error) {
-      res.status(500).json({ message: "Server error", error });
+      console.error("Error retrieving users:", error);
+      res.status(500).json({ message: "Server error", error: error.message });
     }
   }
 
   static async googleLogin(req, res) {
-    const { idToken } = req.body; // Nhận idToken từ frontend
-
-    try {
-      // Xác thực ID token với Firebase
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      const { uid, email, name, picture } = decodedToken;
-
-      // Kiểm tra xem người dùng đã tồn tại chưa
-      let user = await UserModel.getUserByEmail(email);
-      if (!user) {
-        // Nếu người dùng chưa tồn tại, tạo người dùng mới
-        const role = isCompanyEmail(email) ? "admin" : "user";
-        const userId = await UserModel.createUser({
-          username: name,
-          email,
-          avatar: picture,
-          role,
-          password: null, // Mật khẩu sẽ là null vì người dùng sử dụng Google
-        });
-        user = { id: userId, email, role };
-      }
-
-      // Tạo token cho người dùng
-      const token = generateToken({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      });
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-      });
-
-      res.status(200).json({ message: "Login with Google successful", token });
-    } catch (error) {
-      console.error("Error during Google login:", error);
-      res.status(500).json({ message: "Server error", error });
+    const { idToken } = req.body;
+ 
+    if (!idToken || typeof idToken !== 'string') {
+       return res.status(400).json({ message: "Token không hợp lệ" });
     }
-  }
-
+ 
+    try {
+       const decodedToken = await admin.auth().verifyIdToken(idToken);
+       const { uid, email, name, picture } = decodedToken;
+ 
+       // Tìm hoặc tạo người dùng
+       let user = await UserModel.getUserByEmail(email);
+       if (!user) {
+          const newUserData = {
+             username: name || `user_${uid}`,
+             password: null, 
+             role: "user",
+             email,
+             avatar: picture || null,
+          };
+          const newUserId = await UserModel.createUser(newUserData);
+          user = { id: newUserId, ...newUserData };
+       }
+ 
+       // Tạo JWT token
+       const token = generateToken({
+          id: user.id,
+          email: user.email,
+          role: user.role,
+       });
+ 
+       // Lưu token vào cookie
+       res.cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+       });
+ 
+       res.status(200).json({
+          message: "Đăng nhập thành công",
+          user: {
+             id: user.id,
+             email: user.email,
+             role: user.role,
+             avatar: user.avatar,
+             username: user.username,
+          },
+          token,
+       });
+    } catch (error) {
+       console.error("Error in Google login:", error);
+       if (error.code === "auth/invalid-id-token") {
+          return res.status(400).json({ message: "Token không hợp lệ" });
+       }
+       res.status(500).json({ message: "Lỗi máy chủ", error });
+    }
+ }
+ 
   static async logout(req, res) {
     try {
       // Xóa cookie chứa token
@@ -269,76 +377,138 @@ class AuthController {
 
   static async forgotPassword(req, res) {
     const { email } = req.body;
-
+  
     try {
       const user = await UserModel.getUserByEmail(email);
       if (!user) {
-        return res.status(404).json({ message: "User not found" });
+        return res.status(404).json({
+          success: false,
+          message: "User not found with this email",
+        });
       }
-
-      // Tạo token reset password
+  
+      // Generate reset token and its hash
       const resetToken = crypto.randomBytes(32).toString("hex");
       const resetTokenHash = crypto
         .createHash("sha256")
         .update(resetToken)
         .digest("hex");
-
-      // Lưu token đã mã hóa vào user model, thiết lập thời hạn 1 giờ
-      await UserModel.setResetToken(
-        user.id,
-        resetTokenHash,
-        Date.now() + 3600000
-      );
-
-      // Link reset password cho client và admin
-      const clientUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
-      const adminUrl = `${process.env.ADMIN_URL}/reset-password/${resetToken}`;
-
-      // Gửi email chứa link
-      const emailContent = `
-        <p>Bạn đã yêu cầu đặt lại mật khẩu. Nhấp vào link để tiếp tục:</p>
-        <p>Client: <a href="${clientUrl}">Reset Password for Client</a></p>
-        <p>Admin: <a href="${adminUrl}">Reset Password for Admin</a></p>
-      `;
-
+  
+      console.log("Generated token for URL:", resetToken);
+      console.log("Hashed token for DB:", resetTokenHash);
+  
+      // Set expiry to 1 hour from now
+      const resetTokenExpiry = new Date(Date.now() + 3600000);
+  
+      // Save hashed token to database
+      await UserModel.setResetToken(user.id, resetTokenHash, resetTokenExpiry);
+  
+      // Determine reset URL based on user role
+      let resetUrl;
+      let emailContent;
+  
+      if (user.role === 'admin') {
+        resetUrl = `${process.env.ADMIN_URL}/reset-password/${resetToken}`;
+        emailContent = `
+          <h2>Password Reset Request - Admin Account</h2>
+          <p>You requested to reset your password for your admin account.</p>
+          <p><a href="${resetUrl}" target="_blank">Click here to reset your password</a></p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <p>This link will expire in 1 hour.</p>
+          <p>Note: This reset link is specifically for admin accounts.</p>
+        `;
+      } else {
+        resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+        emailContent = `
+          <h2>Password Reset Request</h2>
+          <p>You requested to reset your password.</p>
+          <p><a href="${resetUrl}" target="_blank">Click here to reset your password</a></p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <p>This link will expire in 1 hour.</p>
+        `;
+      }
+  
       await sendEmail(user.email, "Password Reset Request", emailContent);
-      res.status(200).json({ message: "Password reset email sent" });
+  
+      res.status(200).json({
+        success: true,
+        message: "Password reset link sent to email",
+      });
     } catch (error) {
       console.error("Error in forgotPassword:", error);
-      res.status(500).json({ message: "Server error", error });
+      res.status(500).json({
+        success: false,
+        message: "Error sending password reset email",
+        error: error.message
+      });
     }
   }
 
   static async resetPassword(req, res) {
-    const { token } = req.params;
-    const { newPassword } = req.body;
-
     try {
-      // Hash token để kiểm tra
+      const { token } = req.params; // Unhashed token from URL
+      const { newPassword } = req.body;
+
+      if (!token || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Token and new password are required",
+        });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 6 characters long",
+        });
+      }
+
+      // Hash the token from URL to compare with DB
       const hashedToken = crypto
         .createHash("sha256")
         .update(token)
         .digest("hex");
 
-      // Lấy thông tin user theo token đã hash
+      console.log("Token from URL:", token);
+      console.log("Hashed token to compare with DB:", hashedToken);
+
+      // Get user with valid reset token
       const user = await UserModel.getUserByResetToken(hashedToken);
-      if (!user || user.resetTokenExpiry < Date.now()) {
-        return res
-          .status(400)
-          .json({ message: "Token is invalid or has expired" });
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired reset token",
+        });
       }
 
-      // Cập nhật mật khẩu mới cho người dùng
+      // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
-      await UserModel.updatePassword(user.id, hashedPassword);
 
-      // Xoá token reset password
+      // Update password and clear reset token
+      await UserModel.updatePassword(user.id, hashedPassword);
       await UserModel.clearResetToken(user.id);
 
-      res.status(200).json({ message: "Password has been reset successfully" });
+      // Send confirmation email
+      const emailContent = `
+        <h2>Password Changed Successfully</h2>
+        <p>Your password has been changed successfully.</p>
+        <p>If you did not make this change, please contact support immediately.</p>
+      `;
+
+      await sendEmail(user.email, "Password Changed Successfully", emailContent);
+
+      res.status(200).json({
+        success: true,
+        message: "Password reset successful",
+      });
     } catch (error) {
       console.error("Error in resetPassword:", error);
-      res.status(500).json({ message: "Server error", error });
+      res.status(500).json({
+        success: false,
+        message: "Error resetting password",
+        error: error.message
+      });
     }
   }
 
@@ -355,62 +525,68 @@ class AuthController {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Xử lý xóa ảnh cũ nếu có
+      // Xóa ảnh cũ
       if (user.avatar && user.avatar.includes("firebase")) {
         const oldImagePath = user.avatar.split("/o/")[1].split("?")[0];
         try {
           await bucket.file(decodeURIComponent(oldImagePath)).delete();
         } catch (error) {
           console.log("Error deleting old image:", error);
-          // Không return lỗi ở đây, tiếp tục upload ảnh mới
         }
       }
 
-      // Tạo tên file mới với userId để tránh trùng lặp
       const timestamp = Date.now();
       const fileName = `avatars/${userId}_${timestamp}_${path.basename(
         req.file.originalname
       )}`;
       const blob = bucket.file(fileName);
 
-      // Tạo stream để upload file
       const blobStream = blob.createWriteStream({
         metadata: {
           contentType: req.file.mimetype,
         },
       });
 
-      // Xử lý lỗi trong quá trình upload
-      blobStream.on("error", (error) => {
-        console.error("Upload error:", error);
-        return res
-          .status(500)
-          .json({ message: "Unable to upload image", error });
-      });
-
-      // Khi upload hoàn tất
-      blobStream.on("finish", async () => {
-        // Tạo URL công khai cho file
-        const publicUrl = format(
-          `https://storage.googleapis.com/${bucket.name}/${blob.name}`
-        );
-
-        // Cập nhật URL avatar mới vào database
-        await UserModel.updateUserAvatar(userId, publicUrl);
-
-        res.status(200).json({
-          message: "Upload successful",
-          avatarUrl: publicUrl,
+      return new Promise((resolve, reject) => {
+        blobStream.on("error", (error) => {
+          console.error("Upload error:", error);
+          reject(error);
         });
-      });
 
-      // Ghi dữ liệu file vào stream
-      blobStream.end(req.file.buffer);
+        blobStream.on("finish", async () => {
+          try {
+            // Make the file public
+            await blob.makePublic();
+
+            // Get public URL
+            const publicUrl = format(
+              `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+            );
+
+            // Update user avatar in database
+            await UserModel.updateUserAvatar(userId, publicUrl);
+
+            resolve(
+              res.status(200).json({
+                message: "Upload successful",
+                avatarUrl: publicUrl,
+              })
+            );
+          } catch (error) {
+            reject(error);
+          }
+        });
+
+        blobStream.end(req.file.buffer);
+      });
     } catch (error) {
       console.error("Error in uploadAvatar:", error);
       res.status(500).json({ message: "Server error", error });
     }
   }
+
+  
 }
+
 
 module.exports = AuthController;

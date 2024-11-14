@@ -49,6 +49,12 @@ class GenreModel {
     return rows[0].count;
   }
 
+    static async getGenreByImage() {
+    const query = 'SELECT genres.image FROM genres';
+    const [rows] = await db.execute(query);
+    return rows;
+  }
+
 static async getGenreCountByCountry(ids) {
   const placeholders = ids.map(() => '?').join(', ');
   const query = `SELECT COUNT(*) as count FROM genres WHERE countryID IN (${placeholders})`;
@@ -65,17 +71,47 @@ static async getGenreCountByCountry(ids) {
 
   static async createGenre(genreData) {
     const { countryID, name, image } = genreData;
-    const query = 'INSERT INTO genres (countryID, name,image) VALUES (?, ?,?)';
-    const [result] = await db.execute(query, [countryID, name, image]);
-    return result.insertId;
+  
+    try {
+      // Kiểm tra xem thể loại đã tồn tại với tên này chưa
+      const checkQuery = 'SELECT * FROM genres WHERE name = ?';
+      const [existingGenre] = await db.execute(checkQuery, [name]);
+  
+      if (existingGenre.length > 0) {
+        throw new Error('Genre name already exists'); // Nếu tên thể loại đã tồn tại
+      }
+  
+      // Nếu chưa tồn tại, thực hiện thêm mới thể loại
+      const query = 'INSERT INTO genres (countryID, name, image) VALUES (?, ?, ?)';
+      const [result] = await db.execute(query, [countryID, name, image]);
+      
+      return result.insertId; // Trả về ID của thể loại vừa thêm
+    } catch (error) {
+      throw new Error(`Error creating genre: ${error.message}`); // Bắt lỗi và ném lại thông báo lỗi
+    }
   }
-
-
+  
   static async updateGenre(id, genreData) {
     const { countryID, name, image } = genreData;
-    const query = 'UPDATE genres SET countryID = ?, name = ? , image =?  WHERE id = ?';
-    await db.execute(query, [countryID, name, image, id]);
+  
+    try {
+      // Kiểm tra xem thể loại với tên mới đã tồn tại hay chưa (không tính thể loại hiện tại)
+      const checkQuery = 'SELECT * FROM genres WHERE name = ? AND id != ?';
+      const [existingGenre] = await db.execute(checkQuery, [name, id]);
+  
+      if (existingGenre.length > 0) {
+        throw new Error('Genre name already exists'); // Nếu tên thể loại đã tồn tại
+      }
+  
+      // Nếu tên chưa tồn tại, thực hiện cập nhật thể loại
+      const query = 'UPDATE genres SET countryID = ?, name = ?, image = ? WHERE id = ?';
+      await db.execute(query, [countryID, name, image, id]);
+  
+    } catch (error) {
+      throw new Error(`Error updating genre: ${error.message}`); // Bắt lỗi và ném lại thông báo lỗi
+    }
   }
+  
 
   static async deleteGenre(id) {
     const query = 'DELETE FROM genres WHERE id = ?';

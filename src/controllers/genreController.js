@@ -139,8 +139,32 @@ const deleteGenre = async (req, res) => {
     if (!existingGenre) {
       return res.status(404).json({ message: 'Genre not found' });
     }
+    const { image} = existingGenre;
+    let shouldDeleteImage = true;
+    if (image) {
+      const genresWithSameImage = await GenreModel.getGenreByImage(image); 
+      if (genresWithSameImage.length > 1) {
+        shouldDeleteImage = false; 
+      }
+    }
 
-    // Kiểm tra xem có hình ảnh hay không và định dạng có đúng hay không
+    if (shouldDeleteImage && image) {
+      const oldImagePath = image.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
+      try {
+        const file = bucket.file(oldImagePath);
+        const exists = await file.exists(); 
+        if (exists[0]) {
+          await file.delete();
+          console.log("Image deleted successfully.");
+        } else {
+          console.log("Image does not exist on Firebase, skipping deletion.");
+        }
+      } catch (error) {
+        console.error("Error deleting old image:", error);
+        return res.status(500).json({ message: 'Error deleting old image', error: error.message });
+      }
+    }
+
     if (existingGenre.image ) {
       // Tạo đường dẫn tệp từ URL
       const oldImagePath = existingGenre.image.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');

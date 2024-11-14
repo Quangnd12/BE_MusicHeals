@@ -30,7 +30,6 @@ class SongArtistModel {
     return rows[0].count;
   }
 
-  // Lấy thông tin song_artist theo ID của nghệ sĩ với thông tin bổ sung
   static async getSongArtistByArtistID(artistID) {
     const query = `
       SELECT 
@@ -51,7 +50,6 @@ class SongArtistModel {
     return rows;
   }
 
-  // Lấy thông tin song_artist theo ID của bài hát với thông tin bổ sung
   static async getSongArtistBySongID(songID) {
     const query = `
       SELECT 

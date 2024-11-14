@@ -66,11 +66,16 @@ class AlbumModel {
   }
 
   static async getAlbumById(id) {
-    const query = 'SELECT * FROM albums WHERE id = ?';
+    const query = `
+      SELECT 
+        albums.*,
+        (SELECT name FROM artists WHERE id = albums.artistID) as artistName
+      FROM albums
+      WHERE albums.id = ?
+    `;
     const [rows] = await db.execute(query, [id]);
     return rows[0];
   }
-
   static async createAlbum(albumData) {
     const { title, image, artistID, releaseDate } = albumData;
     const formattedArtistID = Array.isArray(artistID) ? parseInt(artistID[0], 10) : parseInt(artistID, 10);
@@ -108,14 +113,14 @@ class AlbumModel {
     await db.execute(query, [id]);
   }
 
-
-  static async searchAlbumsByTitle(searchTerm) {
+  static async searchAlbumsByTitle(searchTerm, limit = 10) {
     const query = `
       SELECT * FROM albums 
       WHERE title LIKE ?
       ORDER BY releaseDate DESC
+      LIMIT ?
     `;
-    const [rows] = await db.execute(query, [`%${searchTerm}%`]);
+    const [rows] = await db.execute(query, [`%${searchTerm}%`, limit]);
     return rows;
   }
 

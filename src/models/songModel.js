@@ -128,7 +128,6 @@ class SongModel {
 
     
     const lyrics = await lyricsFinder(artistID, title) || "Not Found!";
-    // Thêm bài hát vào bảng songs
     const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
     const [result] = await db.execute(query, [title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit]);
     const songId = result.insertId;
@@ -204,7 +203,6 @@ class SongModel {
       title,
       image,
       file_song,
-      lyrics,
       duration,
       listens_count,
       releaseDate,
@@ -214,9 +212,7 @@ class SongModel {
       genreID
     } = songData;
 
-  
-
-    // Cập nhật thông tin bài hát, giữ nguyên file cũ nếu không có file mới
+    const lyrics = await lyricsFinder(artistID, title) || "Not Found!";
     const updatedImage = image || existingSong[0].image;
     const updatedFileSong = file_song || existingSong[0].file_song;
     const query = `UPDATE songs 

@@ -2,7 +2,7 @@ const db = require('../config/db');
 
 class ArtistModel {
 
-  static async getAllArtist(page = 1, limit = 4) {  // Đặt limit mặc định là 15
+  static async getAllArtist(page, limit) {  // Đặt limit mặc định là 15
     const offset = (page - 1) * limit;
     const query = `SELECT 
       id,
@@ -24,28 +24,29 @@ class ArtistModel {
   }
 
   static async getArtistById(id) {
-    const query = 'SELECT * FROM artists WHERE id = ?';
+    const query = 'SELECT * FROM artists WHERE id = ? AND is_deleted = FALSE';
     const [rows] = await db.execute(query, [id]);
-    return rows[0]; // Trả về artist đầu tiên tìm thấy
+    return rows[0];  // Trả về nghệ sĩ nếu có, hoặc undefined nếu không có
   }
+  
 
   
 
-  static async createArtist(artistData) {
-    const { name, avatar = null, role, biography = null } = artistData;
-  
+  static async checkArtistExistsByName(name) {
     const checkQuery = 'SELECT * FROM artists WHERE name = ?';
     const [checkRows] = await db.execute(checkQuery, [name]);
+    return checkRows.length > 0;
+  }
   
-    if (checkRows.length > 0) {
-      throw new Error('Artist with this name already exists');
-    }
+  static async createArtist(artistData) {
+    const { name, avatar = null, role, biography = null } = artistData;
   
     // Thêm nghệ sĩ vào bảng artists
     const query = 'INSERT INTO artists (name, avatar, role, biography) VALUES (?, ?, ?, ?)';
     const [result] = await db.execute(query, [name, avatar, role, biography]);
     return result.insertId;
   }
+  
   
 
   static async updateArtist(id, artistData) {
@@ -65,6 +66,17 @@ class ArtistModel {
     const query = 'DELETE FROM artists WHERE id = ?';
     await db.execute(query, [id]);
   }
+
+  static async softDeleteArtist(id) {
+    const query = 'UPDATE artists SET is_deleted = TRUE WHERE id = ?';
+    await db.execute(query, [id]);
+  }
+  
+  // Phương thức Model để khôi phục nghệ sĩ
+static async restoreArtist(id) {
+  const query = 'UPDATE artists SET is_deleted = FALSE WHERE id = ?';
+  await db.execute(query, [id]);
+}
 
   static async searchArtistsByName(name) {
     const query = `

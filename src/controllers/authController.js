@@ -1,6 +1,6 @@
 const UserModel = require("../models/userModel");
 const generateToken = require("../utils/generateToken");
-const isCompanyEmail = require("../utils/isCompanyEmail");
+// const isCompanyEmail = require("../utils/isCompanyEmail");
 const bcrypt = require("bcryptjs");
 const { admin } = require("../config/firebase");
 const sendEmail = require("../utils/sendEmail");
@@ -17,7 +17,8 @@ class AuthController {
       const { username, password, birthday, email, avatar } = req.body;
 
       // Xác định vai trò dựa trên miền email
-      const role = isCompanyEmail(email) ? "admin" : "user";
+      const role = "user";
+      // const role = isCompanyEmail(email) ? "admin" : "user";
 
       // Tạo người dùng với role tương ứng
       const userId = await UserModel.createUser({

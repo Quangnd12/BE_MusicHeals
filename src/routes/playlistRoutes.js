@@ -1,35 +1,34 @@
-
 // playlistRoutes.js
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const playlistController = require('../controllers/playlistController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
 
-// Tất cả các routes đều yêu cầu xác thực
+// Cấu hình multer đơn giản
+const upload = multer({
+    storage: multer.memoryStorage(),
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Not an image file'), false);
+        }
+    }
+});
+
+// Public routes
+router.get('/discover', playlistController.getPublicPlaylists);
+
+// Protected routes
 router.use(authMiddleware);
 
-// Create a new playlist
-router.post('/', playlistController.createPlaylist);
-
-// Add song to playlist
-router.post('/add-song', playlistController.addSongToPlaylist);
-
-// Remove song from playlist
-router.delete('/:playlistId/songs/:songId', playlistController.removeSongFromPlaylist);
-
-// Get playlist by ID
-router.get('/:id', playlistController.getPlaylistById);
-
-// Get user's playlists
-router.get('/user/me', playlistController.getUserPlaylists);
-
-// Get public playlists
-router.get('/public/all', playlistController.getPublicPlaylists);
-
-// Update playlist
-router.put('/:id', playlistController.updatePlaylist);
-
-// Delete playlist
+router.post('/', upload.fields([{ name: 'image', maxCount: 1 }]), playlistController.createPlaylist);
+router.put('/:id', upload.fields([{ name: 'image', maxCount: 1 }]), playlistController.updatePlaylist);
 router.delete('/:id', playlistController.deletePlaylist);
+router.get('/:id', playlistController.getPlaylistById);
+router.get('/user/me', playlistController.getUserPlaylists);
+router.post('/songs/add', playlistController.addSongToPlaylist);
+router.delete('/:playlistId/songs/:songId', playlistController.removeSongFromPlaylist);
 
 module.exports = router;

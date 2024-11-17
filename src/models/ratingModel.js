@@ -1,90 +1,161 @@
+// ratingModel.js
 const db = require('../config/db');
 
 class RatingModel {
-    // Validate rating input
-    static validateRating(rating) {
+    static convertRating(rating, fromType, toType) {
+        if (fromType === toType) return rating;
+
+        if (fromType === 'point' && toType === 'star') {
+            // Convert point to star (0-100 -> 1-5)
+            return Math.round((rating / 20) * 2) / 2;
+        } 
+        
+        if (fromType === 'star' && toType === 'point') {
+            // Convert star to point (1-5 -> 0-100)
+            return Math.round(rating * 20);
+        }
+
+        throw new Error('Invalid conversion types');
+    }
+
+    static validateRating(rating, type) {
         const numRating = Number(rating);
-        if (isNaN(numRating) || numRating < 1 || numRating > 5) {
-            throw new Error('Rating must be a number between 1 and 5');
+
+        if (isNaN(numRating)) {
+            throw new Error('Rating must be a number');
+        }
+
+        switch (type) {
+            case 'star':
+                if (numRating < 1 || numRating > 5 || (numRating * 2) % 1 !== 0) {
+                    throw new Error('Star rating must be a whole or half number between 1 and 5');
+                }
+                break;
+
+            case 'point':
+                if (!Number.isInteger(numRating) || numRating < 0 || numRating > 100) {
+                    throw new Error('Point rating must be a whole number between 0 and 100');
+                }
+                break;
+
+            default:
+                throw new Error('Invalid rating type. Must be either "star" or "point"');
         }
         return numRating;
     }
 
-    static async createRating(userId, songId, rating, comment = null) {
+    static async createRating(userId, songId, rating, type = 'star') {
+        const connection = await db.getConnection();
         try {
-            // Validate inputs
             if (!userId || !songId) {
-                throw new Error('UserId and songId are required');
+                throw new Error('userId and songId are required');
             }
+
+            // Validate primary rating
+            const validatedRating = this.validateRating(rating, type);
             
-            const validatedRating = this.validateRating(rating);
-            
-            // Check if song exists first
-            const [songExists] = await db.execute(
+            // Calculate the other rating type
+            const otherType = type === 'star' ? 'point' : 'star';
+            const convertedRating = this.convertRating(validatedRating, type, otherType);
+
+            await connection.beginTransaction();
+
+            // Check if song exists
+            const [songExists] = await connection.execute(
                 'SELECT id FROM songs WHERE id = ?',
                 [songId]
             );
-            
+
             if (songExists.length === 0) {
                 throw new Error('Song not found');
             }
 
-            const [existing] = await db.execute(
-                'SELECT id FROM ratings WHERE userId = ? AND songId = ?',
+            // Insert/update both ratings in sequence
+            await connection.execute(
+                `INSERT INTO ratings (userId, songId, rating, ratingType)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    rating = VALUES(rating),
+                    updatedAt = CURRENT_TIMESTAMP`,
+                [userId, songId, validatedRating, type]
+            );
+
+            await connection.execute(
+                `INSERT INTO ratings (userId, songId, rating, ratingType)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    rating = VALUES(rating),
+                    updatedAt = CURRENT_TIMESTAMP`,
+                [userId, songId, convertedRating, otherType]
+            );
+
+            // Get both ratings
+            const [ratings] = await connection.execute(
+                `SELECT rating, ratingType 
+                 FROM ratings 
+                 WHERE userId = ? AND songId = ?`,
                 [userId, songId]
             );
 
-            if (existing.length > 0) {
-                const [result] = await db.execute(
-                    `UPDATE ratings 
-                     SET rating = ?, 
-                         comment = ?, 
-                         updatedAt = CURRENT_TIMESTAMP 
-                     WHERE userId = ? AND songId = ?`,
-                    [validatedRating, comment, userId, songId]
-                );
-                return { id: existing[0].id, updated: true };
-            } else {
-                const [result] = await db.execute(
-                    `INSERT INTO ratings (userId, songId, rating, comment) 
-                     VALUES (?, ?, ?, ?)`,
-                    [userId, songId, validatedRating, comment]
-                );
-                return { id: result.insertId, updated: false };
-            }
+            await connection.commit();
+
+            return {
+                userId,
+                songId,
+                ratings: ratings.reduce((acc, curr) => {
+                    acc[curr.ratingType] = Number(curr.rating);
+                    return acc;
+                }, {})
+            };
+
         } catch (error) {
-            console.error('Error in createRating:', error);
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async getUserRating(userId, songId, returnType = 'star') {
+        try {
+            if (!['star', 'point'].includes(returnType)) {
+                throw new Error('Invalid rating type. Must be either "star" or "point"');
+            }
+
+            // Get rating of the requested type
+            const [ratings] = await db.execute(
+                `SELECT rating, ratingType 
+                 FROM ratings 
+                 WHERE userId = ? AND songId = ? AND ratingType = ?`,
+                [userId, songId, returnType]
+            );
+
+            if (ratings.length === 0) return null;
+
+            return {
+                rating: Number(ratings[0].rating),
+                type: returnType
+            };
+
+        } catch (error) {
             throw error;
         }
     }
 
-    static async getRatingsBySongId(songId) {
+    static async getRatingsBySongId(songId, returnType = 'star') {
         try {
-            if (!songId) {
-                throw new Error('SongId is required');
+            if (!songId) throw new Error('SongId is required');
+            
+            if (!['star', 'point'].includes(returnType)) {
+                throw new Error('Invalid rating type. Must be either "star" or "point"');
             }
 
-            // Get rating statistics with distribution
-            const [stats] = await db.execute(
-                `SELECT 
-                    ROUND(AVG(rating), 2) as averageRating,
-                    COUNT(*) as totalRatings,
-                    SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) as fiveStars,
-                    SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) as fourStars,
-                    SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as threeStars,
-                    SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) as twoStars,
-                    SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as oneStar
-                FROM ratings 
-                WHERE songId = ?`,
-                [songId]
-            );
-
-            // Get detailed ratings with user info
+            // Get all ratings of the requested type
             const [ratings] = await db.execute(
                 `SELECT 
                     r.id,
                     r.rating,
-                    r.comment,
+                    r.ratingType,
                     r.createdAt,
                     r.updatedAt,
                     u.id as userId,
@@ -92,26 +163,18 @@ class RatingModel {
                     u.avatar
                 FROM ratings r
                 JOIN users u ON r.userId = u.id
-                WHERE r.songId = ?
-                ORDER BY r.createdAt DESC`,
-                [songId]
+                WHERE r.songId = ? AND r.ratingType = ?`,
+                [songId, returnType]
             );
 
+            const stats = this.calculateStats(ratings, returnType);
+
             return {
-                summary: {
-                    ...stats[0],
-                    distribution: {
-                        5: stats[0].fiveStars || 0,
-                        4: stats[0].fourStars || 0,
-                        3: stats[0].threeStars || 0,
-                        2: stats[0].twoStars || 0,
-                        1: stats[0].oneStar || 0
-                    }
-                },
+                summary: stats,
                 ratings: ratings.map(r => ({
                     id: r.id,
-                    rating: r.rating,
-                    comment: r.comment,
+                    rating: Number(r.rating),
+                    type: returnType,
                     createdAt: r.createdAt,
                     updatedAt: r.updatedAt,
                     user: {
@@ -121,93 +184,92 @@ class RatingModel {
                     }
                 }))
             };
+
         } catch (error) {
-            console.error('Error in getRatingsBySongId:', error);
             throw error;
         }
     }
 
-    static async getUserRating(userId, songId) {
+    // Phương thức mới để lấy rating theo cả hai kiểu
+    static async getUserRatingBothTypes(userId, songId) {
         try {
-            if (!userId || !songId) {
-                throw new Error('UserId and songId are required');
-            }
-
-            const [rating] = await db.execute(
-                `SELECT id, rating, comment, createdAt, updatedAt
-                FROM ratings
-                WHERE userId = ? AND songId = ?`,
+            const [ratings] = await db.execute(
+                `SELECT rating, ratingType 
+                 FROM ratings 
+                 WHERE userId = ? AND songId = ?`,
                 [userId, songId]
             );
-            return rating[0] || null;
+
+            if (ratings.length === 0) return null;
+
+            return ratings.reduce((acc, curr) => {
+                acc[curr.ratingType] = Number(curr.rating);
+                return acc;
+            }, {});
+
         } catch (error) {
-            console.error('Error in getUserRating:', error);
             throw error;
         }
     }
 
-    static async deleteRating(userId, songId) {
-        try {
-            if (!userId || !songId) {
-                throw new Error('UserId and songId are required');
-            }
+    static calculateStats(ratings, type) {
+        if (!ratings || ratings.length === 0) {
+            return {
+                averageRating: 0,
+                totalRatings: 0,
+                distribution: type === 'star' 
+                    ? { 5: 0, 4.5: 0, 4: 0, 3.5: 0, 3: 0, 2.5: 0, 2: 0, 1.5: 0, 1: 0 }
+                    : { excellent: 0, veryGood: 0, good: 0, fair: 0, poor: 0 }
+            };
+        }
 
-            const [result] = await db.execute(
+        const totalRatings = ratings.length;
+        const averageRating = Number((ratings.reduce((sum, r) => sum + Number(r.rating), 0) / totalRatings).toFixed(2));
+
+        let distribution;
+        if (type === 'star') {
+            distribution = {
+                5: 0, 4.5: 0, 4: 0, 3.5: 0, 3: 0, 2.5: 0, 2: 0, 1.5: 0, 1: 0
+            };
+            ratings.forEach(r => {
+                const rating = Number(r.rating);
+                distribution[rating] = (distribution[rating] || 0) + 1;
+            });
+        } else {
+            distribution = {
+                excellent: ratings.filter(r => r.rating >= 90).length,
+                veryGood: ratings.filter(r => r.rating >= 80 && r.rating < 90).length,
+                good: ratings.filter(r => r.rating >= 70 && r.rating < 80).length,
+                fair: ratings.filter(r => r.rating >= 60 && r.rating < 70).length,
+                poor: ratings.filter(r => r.rating < 60).length
+            };
+        }
+
+        return { averageRating, totalRatings, distribution };
+    }
+
+    static async deleteRating(userId, songId, type = 'star') {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // Delete both star and point ratings
+            const [result] = await connection.execute(
                 'DELETE FROM ratings WHERE userId = ? AND songId = ?',
                 [userId, songId]
             );
+
+            await connection.commit();
             return result.affectedRows > 0;
         } catch (error) {
-            console.error('Error in deleteRating:', error);
+            await connection.rollback();
             throw error;
+        } finally {
+            connection.release();
         }
     }
 
-    static async getTopRatedSongs(limit = 10) {
-        try {
-            if (!Number.isInteger(limit) || limit < 1) {
-                throw new Error('Limit must be a positive integer');
-            }
 
-            const [songs] = await db.execute(
-                `SELECT 
-                    s.*,
-                    ROUND(AVG(r.rating), 2) as averageRating,
-                    COUNT(r.id) as totalRatings
-                FROM songs s
-                LEFT JOIN ratings r ON s.id = r.songId
-                GROUP BY s.id
-                HAVING totalRatings > 0
-                ORDER BY averageRating DESC, totalRatings DESC
-                LIMIT ?`,
-                [limit]
-            );
-            
-            return songs;
-        } catch (error) {
-            console.error('Error in getTopRatedSongs:', error);
-            throw error;
-        }
-    }
-
-    static async getRatingStats() {
-        try {
-            const [stats] = await db.execute(
-                `SELECT 
-                    COUNT(*) as totalRatings,
-                    ROUND(AVG(rating), 2) as averageRating,
-                    COUNT(DISTINCT songId) as ratedSongs,
-                    COUNT(DISTINCT userId) as uniqueUsers
-                FROM ratings`
-            );
-            return stats[0];
-        } catch (error) {
-            console.error('Error in getRatingStats:', error);
-            throw error;
-        }
-    }
-
-    
 }
 
 module.exports = RatingModel;

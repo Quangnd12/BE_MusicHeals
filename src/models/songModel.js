@@ -1,5 +1,7 @@
 const db = require('../config/db');
 const lyricsFinder = require('lyrics-finder');
+const leoProfanity = require('leo-profanity');
+
 
 class SongModel {
 
@@ -74,11 +76,58 @@ class SongModel {
     return rows;
 }
 
-  static async getSongCount() {
-    const query = 'SELECT COUNT(*) as count FROM songs';
-    const [rows] = await db.execute(query);
-    return rows[0].count;
+static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration = 0, minListensCount = 0, maxListensCount = 0) {
+  let query = `
+      SELECT COUNT(DISTINCT songs.id) as count
+      FROM songs
+      LEFT JOIN song_genres ON songs.id = song_genres.songID
+  `;
+
+  const conditions = [];
+  const params = [];
+
+  // Điều kiện lọc theo tên
+  if (searchName) {
+      conditions.push(`songs.title LIKE ?`);
+      params.push(`%${searchName}%`);
   }
+
+  // Điều kiện lọc theo thể loại
+  if (genres.length > 0) {
+      const genrePlaceholders = genres.map(() => '?').join(', ');
+      conditions.push(`song_genres.genreID IN (${genrePlaceholders})`);
+      params.push(...genres);
+  }
+
+  // Điều kiện lọc theo duration
+  if (minDuration > 0) {
+      conditions.push(`songs.duration >= ?`);
+      params.push(minDuration);
+  }
+  if (maxDuration > 0) {
+      conditions.push(`songs.duration <= ?`);
+      params.push(maxDuration);
+  }
+
+  // Điều kiện lọc theo listen count
+  if (minListensCount > 0) {
+      conditions.push(`songs.listens_count >= ?`);
+      params.push(minListensCount);
+  }
+  if (maxListensCount > 0) {
+      conditions.push(`songs.listens_count <= ?`);
+      params.push(maxListensCount);
+  }
+
+  if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+  }
+
+  const [rows] = await db.execute(query, params);
+  return rows[0].count;
+}
+
+
 
 
   static async getSongById(id) {
@@ -129,15 +178,15 @@ class SongModel {
       genreID,
       duration,
       releaseDate,
-      is_explicit,
       listens_count = 0,
 
     } = songData;
 
-    
-    const lyrics = await lyricsFinder(artistID, title) || "Not Found!";
+    const lyrics = await lyricsFinder(artistID, title) || "Not Found!";  
+    const cleanLyrics = lyrics ? leoProfanity.clean(lyrics) : null;
+    const is_explicit = lyrics && leoProfanity.check(lyrics) ? 1 : 0;
     const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-    const [result] = await db.execute(query, [title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit]);
+    const [result] = await db.execute(query, [title, image, file_song, cleanLyrics, duration, listens_count, releaseDate, is_explicit]);
     const songId = result.insertId;
 
     if (artistID && artistID.length > 0) {

@@ -53,23 +53,84 @@ const getAlbumById = async (req, res) => {
   }
 };
 
+const validateReleaseDate = (releaseDate) => {
+  // Lấy ngày hiện tại ở múi giờ Việt Nam (UTC+7)
+  const now = new Date();
+  const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+  vietnamTime.setHours(0, 0, 0, 0);
+  const todayVietnam = vietnamTime.toISOString().split('T')[0];
+
+  // Xử lý releaseDate
+  let releaseDateStr;
+  try {
+    if (typeof releaseDate === 'string' && releaseDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Nếu là string YYYY-MM-DD, chuyển sang Date object để xử lý múi giờ
+      const dateObj = new Date(releaseDate);
+      const dateVN = new Date(dateObj.getTime() + (7 * 60 * 60 * 1000));
+      releaseDateStr = dateVN.toISOString().split('T')[0];
+    } else {
+      // Nếu là định dạng khác
+      const releaseDateObj = new Date(releaseDate);
+      if (isNaN(releaseDateObj.getTime())) {
+        throw new Error('Invalid date');
+      }
+      const dateVN = new Date(releaseDateObj.getTime() + (7 * 60 * 60 * 1000));
+      releaseDateStr = dateVN.toISOString().split('T')[0];
+    }
+  } catch (error) {
+    throw new Error('Invalid release date format. Please use YYYY-MM-DD format.');
+  }
+
+  // So sánh với ngày hiện tại ở múi giờ Việt Nam
+  if (releaseDateStr < todayVietnam) {
+    throw new Error('Release date cannot be in the past');
+  }
+
+  return releaseDateStr;
+};
+
 const createAlbum = async (req, res) => {
   try {
     const { title, artistID, releaseDate } = req.body;
+    
+    // Validate required fields
     if (!title || !artistID || !releaseDate) {
-      return res.status(400).json({ message: 'Title, artistID, and releaseDate are required' });
+      return res.status(400).json({ 
+        message: 'Title, artistID, and releaseDate are required',
+        details: {
+          title: title ? null : 'Title is required',
+          artistID: artistID ? null : 'Artist ID is required',
+          releaseDate: releaseDate ? null : 'Release date is required'
+        }
+      });
     }
 
-    const newAlbum = { title, artistID, releaseDate };
+    // Validate release date
+    try {
+      const validatedReleaseDate = validateReleaseDate(releaseDate);
+      const newAlbum = { 
+        title, 
+        artistID, 
+        releaseDate: validatedReleaseDate
+      };
 
-    if (req.file) {
-      const imageFile = req.file;
-      const imagePublicUrl = await uploadToStorage(imageFile, 'albums/images');
-      newAlbum.image = imagePublicUrl;
+      if (req.file) {
+        const imageFile = req.file;
+        const imagePublicUrl = await uploadToStorage(imageFile, 'albums/images');
+        newAlbum.image = imagePublicUrl;
+      }
+
+      const albumId = await AlbumModel.createAlbum(newAlbum);
+      res.status(201).json({ 
+        message: 'Album created successfully',
+        album: { id: albumId, ...newAlbum }
+      });
+    } catch (dateError) {
+      return res.status(400).json({ 
+        message: 'Invalid release date',
+        error: dateError.message 
+      });
     }
-
-    const albumId = await AlbumModel.createAlbum(newAlbum);
-    res.status(200).json({ id: albumId, ...newAlbum });
 
   } catch (error) {
     console.error('Error creating album:', error);
@@ -89,11 +150,24 @@ const updateAlbum = async (req, res) => {
       return res.status(404).json({ message: 'Album not found' });
     }
 
+    // Validate release date if it's being updated
+    let validatedReleaseDate = existingAlbum.releaseDate;
+    if (req.body.releaseDate) {
+      try {
+        validatedReleaseDate = validateReleaseDate(req.body.releaseDate);
+      } catch (dateError) {
+        return res.status(400).json({ 
+          message: 'Invalid release date',
+          error: dateError.message 
+        });
+      }
+    }
+
     const updatedAlbum = {
       title: req.body.title || existingAlbum.title,
       image: existingAlbum.image,
       artistID: req.body.artistID || existingAlbum.artistID,
-      releaseDate: req.body.releaseDate || existingAlbum.releaseDate,
+      releaseDate: validatedReleaseDate,
     };
 
     if (req.file) {
@@ -103,14 +177,19 @@ const updateAlbum = async (req, res) => {
     }
 
     await AlbumModel.updateAlbum(id, updatedAlbum);
-    res.status(200).json({ message: "Album updated successfully", album: updatedAlbum });
+    res.status(200).json({ 
+      message: "Album updated successfully", 
+      album: updatedAlbum 
+    });
 
   } catch (error) {
     console.error("Error updating album:", error);
+    if (error.message === 'An album with this title already exists for this artist') {
+      return res.status(400).json({ message: error.message });
+    }
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
 const deleteAlbum = async (req, res) => {
   try {
     const { id } = req.params;
@@ -177,5 +256,6 @@ module.exports = {
   updateAlbum,
   deleteAlbum,
   searchAlbums,
-  getThisMonthAlbums
+  getThisMonthAlbums,
+  validateReleaseDate
 };

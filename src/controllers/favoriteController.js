@@ -1,65 +1,110 @@
-const FavoriteModel = require("../models/favoriteModel");
+const FavoriteModel = require('../models/favoriteModel');
 
-const getAllFavorites = async (req, res) => {
-  try {
-    const favorites = await FavoriteModel.getUserFavorites();
-    res.json({
-      message: "Favorites retrieved successfully",
-      data: favorites,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+class FavoriteController {
+    static async toggleFavorite(req, res) {
+        try {
+            const userId = req.user.id;
+            const { songId } = req.params;
+
+            const result = await FavoriteModel.toggleFavorite(userId, songId);
+            const favoriteCount = await FavoriteModel.getFavoriteCount(songId);
+
+            res.status(200).json({
+                success: true,
+                message: `Song ${result.action} successfully`,
+                action: result.action,
+                favoriteCount: favoriteCount
+            });
+        } catch (error) {
+            console.error('Toggle Favorite Error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error toggling favorite',
+                error: error.message
+            });
+        }
+    }
+
+    static async getUserFavorites(req, res) {
+        try {
+            const userId = req.user.id;
+            const favorites = await FavoriteModel.getUserFavorites(userId);
+
+            res.status(200).json({
+                success: true,
+                total: favorites.length,
+                favorites
+            });
+        } catch (error) {
+            console.error('Get Favorites Error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error fetching favorites',
+                error: error.message
+            });
+        }
+    }
+
+    static async checkFavoriteStatus(req, res) {
+        try {
+            const userId = req.user.id;
+            const { songId } = req.params;
+
+            const isFavorite = await FavoriteModel.getFavoriteStatus(userId, songId);
+            const favoriteCount = await FavoriteModel.getFavoriteCount(songId);
+
+            res.status(200).json({
+                success: true,
+                isFavorite,
+                favoriteCount
+            });
+        } catch (error) {
+            console.error('Check Favorite Status Error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Error checking favorite status',
+                error: error.message
+            });
+        }
+    }
+    static async getMostLikedSongs(req, res) {
+      try {
+          const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+          const mostLikedSongs = await FavoriteModel.getMostLikedSongs(limit);
+          
+          res.status(200).json({
+              success: true,
+              total: mostLikedSongs.length,
+              songs: mostLikedSongs
+          });
+      } catch (error) {
+          console.error('Get Most Liked Songs Error:', error);
+          res.status(500).json({
+              success: false,
+              message: 'Error fetching most liked songs',
+              error: error.message
+          });
+      }
   }
-};
-
-const getFavoriteById = async (req, res) => {
-  try {
-    const { favoriteId } = req.params;
-    const favorite = await FavoriteModel.getFavoriteById(favoriteId);
-
-    if (!favorite) {
-      return res.status(404).json({ message: "Favorite not found" });
-    }
-
-    res.json({
-      message: "Favorite retrieved successfully",
-      data: favorite,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  
+  static async getFavoritesCountByGenre(req, res) {
+      try {
+          const genreFavorites = await FavoriteModel.getFavoritesCountByGenre();
+          
+          res.status(200).json({
+              success: true,
+              total: genreFavorites.length,
+              genreFavorites
+          });
+      } catch (error) {
+          console.error('Get Favorites by Genre Error:', error);
+          res.status(500).json({
+              success: false,
+              message: 'Error fetching favorites by genre',
+              error: error.message
+          });
+      }
   }
-};
+}
 
-
-const createFavorite = async (req, res) => {
-    const { userId, songId, albumId, playlistId } = req.body;
-    if (!userId || (!songId && !albumId && !playlistId)) {
-      return res.status(400).json({ message: "UserId and at least one of songId, albumId, playlistId are required" });
-    }
-  
-    try {
-      const newFavorite = await FavoriteModel.createFavorite(userId, songId, albumId, playlistId);
-  
-      res.status(201).json({
-        message: "Favorite created successfully",
-        data: newFavorite,
-      });
-    } catch (error) {
-      res.status(500).json({ message: error.message });
-    }
-  };
-  
-const deleteFavorite = async (req, res) => {
-    try {
-      const { favoriteId } = req.params;
-      await FavoriteModel.deleteFavorite(favoriteId);
-      res.json({
-        message: "Favorite deleted successfully",
-      });
-    } catch (error) {
-      res.status(500).json({ message: error.message });
-    }
-  };
-  
-
-module.exports = { getAllFavorites, getFavoriteById, createFavorite, deleteFavorite };
+module.exports = FavoriteController;

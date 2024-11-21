@@ -31,16 +31,16 @@ class PlaylistModel {
       const offset = (page - 1) * limit;
       let params = [];
       let whereConditions = ['p.isPublic = 1'];
-      
+
       // Handle search condition
       if (search.trim()) {
         whereConditions.push('(p.name LIKE ? OR p.description LIKE ?)');
         params.push(`%${search}%`, `%${search}%`);
       }
-  
+
       // Build WHERE clause
       const whereClause = whereConditions.join(' AND ');
-  
+
       // Count total items
       const countQuery = `
         SELECT COUNT(DISTINCT p.id) as total 
@@ -49,7 +49,7 @@ class PlaylistModel {
       `;
       const [countResult] = await db.execute(countQuery, params);
       const totalItems = countResult[0]?.total || 0;
-  
+
       // Build main query
       const query = `
         SELECT 
@@ -71,10 +71,10 @@ class PlaylistModel {
         ORDER BY p.${sortBy} ${sortOrder}
         LIMIT ${parseInt(limit)} OFFSET ${offset}
       `;
-  
+
       // Execute main query
       const [rows] = await db.execute(query, params);
-  
+
       return {
         items: rows,
         pagination: {
@@ -95,14 +95,21 @@ class PlaylistModel {
       SELECT 
         s.*,
         ps.addedAt,
-        a.name as artistName
+        GROUP_CONCAT(DISTINCT a.name) as artistNames,
+        GROUP_CONCAT(DISTINCT a.id) as artistIds,
+        GROUP_CONCAT(DISTINCT al.title) as albumNames,
+        GROUP_CONCAT(DISTINCT al.id) as albumIds
       FROM playlist_songs ps
       JOIN songs s ON ps.songId = s.id
-      LEFT JOIN artists a ON s.artistId = a.id
+      JOIN song_artists sa ON s.id = sa.songID
+      JOIN artists a ON sa.artistID = a.id
+      LEFT JOIN song_albums sal ON s.id = sal.songID
+      LEFT JOIN albums al ON sal.albumID = al.id
       WHERE ps.playlistId = ?
+      GROUP BY s.id, ps.addedAt
       ORDER BY ps.addedAt DESC
     `;
-    
+
     const [rows] = await db.execute(query, [playlistId]);
     return rows;
   }

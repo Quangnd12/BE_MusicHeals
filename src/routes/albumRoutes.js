@@ -13,7 +13,7 @@ router.post('/', upload.single('image'), albumController.createAlbum);
 router.put('/:id', upload.single('image'), albumController.updateAlbum);
 router.delete('/:id', albumController.deleteAlbum);
 
-router.get('/search/title', albumController.searchAlbums);  // Đổi route để tránh conflict
+router.get('/search/title', albumController.searchAlbums); 
 router.get('/list/this-month', albumController.getThisMonthAlbums);
 
 module.exports = router;

@@ -40,7 +40,7 @@ const getAllSongs = async (req, res) => {
   try {
 
     const songs = await SongModel.getAllSongs(true, page, limit, searchName, genres, minDuration, maxDuration, minListensCount,maxListensCount);
-    const totalCount = await SongModel.getSongCount();
+    const totalCount = await SongModel.getSongCount(searchName, genres, minDuration, maxDuration, minListensCount, maxListensCount);
     const totalPages = Math.ceil(totalCount / limit);
 
     res.status(200).json({
@@ -113,7 +113,7 @@ const createSong = async (req, res) => {
     const songId = await SongModel.createSong(newSong);
 
     const artistIDs = Array.isArray(artistID) ? artistID : [artistID];
-    const genreIDs = Array.isArray(genreID) ? genreID : [genreID].filter(id => id); // Đảm bảo genreID hợp lệ
+    const genreIDs = Array.isArray(genreID) ? genreID : [genreID].filter(id => id); 
     const albumIDs = Array.isArray(albumID) ? albumID : [albumID].filter(id => id); // Đảm bảo albumID hợp lệ
 
     if (artistIDs.length > 0) await SongModel.insertArtists(songId, artistIDs);

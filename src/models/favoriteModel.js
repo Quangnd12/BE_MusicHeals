@@ -1,98 +1,120 @@
-const { db } = require("../config/firebase");
+const db = require('../config/db');
 
 class FavoriteModel {
-  constructor() {
-    this.collection = db.collection("favorites"); // Collection trong Firestore
-  }
+  static async toggleFavorite(userId, songId) {
+    const connection = await db.getConnection();
 
-  /**
-   * Hàm lấy tất cả các favorite của người dùng từ cơ sở dữ liệu
-   * @returns {Promise<Array<{favoriteId: string, userId: number, songId: number, albumId: number, playlistId: number, created: string}>>} - Trả về danh sách các favorite của người dùng.
-   */
-  async getUserFavorites() {
-    const snapshot = await this.collection.get();
+    try {
+      await connection.beginTransaction();
 
-    return snapshot.empty
-      ? []
-      : snapshot.docs.map((doc) => {
-          const favoriteData = doc.data();
-          return {
-            favoriteId: doc.id,
-            userId: favoriteData.userId,
-            songId: favoriteData.songId,
-            albumId: favoriteData.albumId,
-            playlistId: favoriteData.playlistId,
-            created: favoriteData.created,
-          };
-        });
-  }
+      // Kiểm tra xem đã thích chưa
+      const [existingFavorite] = await connection.execute(
+        'SELECT * FROM user_favorites WHERE userId = ? AND songId = ?',
+        [userId, songId]
+      );
 
-  /**
-   * Hàm lấy một favorite theo ID
-   * @param {string} favoriteId - ID của favorite
-   * @returns {Promise<{favoriteId: string, userId: number, songId: number, albumId: number, playlistId: number, created: string}>} - Trả về favorite tìm thấy.
-   */
-  async getFavoriteById(favoriteId) {
-    const favoriteRef = this.collection.doc(favoriteId);
-    const favoriteDoc = await favoriteRef.get();
+      let result;
+      if (existingFavorite.length > 0) {
+        // Đã thích rồi thì bỏ thích
+        await connection.execute(
+          'DELETE FROM user_favorites WHERE userId = ? AND songId = ?',
+          [userId, songId]
+        );
+        result = { action: 'unliked', status: false };
+      } else {
+        // Chưa thích thì thêm vào
+        await connection.execute(
+          'INSERT INTO user_favorites (userId, songId) VALUES (?, ?)',
+          [userId, songId]
+        );
+        result = { action: 'liked', status: true };
+      }
 
-    if (!favoriteDoc.exists) {
-      throw new Error("Favorite not found.");
+      await connection.commit();
+      return result;
+    } catch (error) {
+      await connection.rollback();
+      console.error('Favorite Toggle Error:', error);
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    const favoriteData = favoriteDoc.data();
-    return {
-      favoriteId: favoriteDoc.id,
-      userId: favoriteData.userId,
-      songId: favoriteData.songId,
-      albumId: favoriteData.albumId,
-      playlistId: favoriteData.playlistId,
-      created: favoriteData.created,
-    };
   }
 
-  /**
-   * Hàm thêm một favorite mới vào cơ sở dữ liệu
-   * @param {string} userId - ID của người dùng
-   * @param {number} songId - ID của bài hát (nếu có)
-   * @param {number} albumId - ID của album (nếu có)
-   * @param {number} playlistId - ID của playlist (nếu có)
-   * @returns {Promise<{favoriteId: string, userId: number, songId: number, albumId: number, playlistId: number, created: string}>} - Favorite mới tạo.
-   */
-  async createFavorite(userId, songId, albumId, playlistId) {
-    const newFavorite = await this.collection.add({
-      userId,
-      songId,
-      albumId,
-      playlistId,
-      created: new Date(),
-    });
-
-    return {
-      favoriteId: newFavorite.id,
-      userId,
-      songId,
-      albumId,
-      playlistId,
-      created: new Date(),
-    };
+  static async getUserFavorites(userId) {
+    const query = `
+            SELECT 
+                songs.id,
+                songs.title,
+                songs.image,
+                songs.file_song,
+                songs.duration,
+                songs.listens_count,
+                GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
+                GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre
+            FROM user_favorites
+            JOIN songs ON user_favorites.songId = songs.id
+            LEFT JOIN song_artists ON songs.id = song_artists.songId
+            LEFT JOIN artists ON song_artists.artistId = artists.id
+            LEFT JOIN song_genres ON songs.id = song_genres.songID
+            LEFT JOIN genres ON song_genres.genreID = genres.id
+            WHERE user_favorites.userId = ?
+            GROUP BY songs.id
+        `;
+    const [rows] = await db.execute(query, [userId]);
+    return rows;
   }
 
-  /**
-   * Hàm xóa một favorite theo ID
-   * @param {string} favoriteId - ID của favorite cần xóa
-   * @returns {Promise<void>} - Không trả về dữ liệu
-   */
-  async deleteFavorite(favoriteId) {
-    const favoriteRef = this.collection.doc(favoriteId);
-    const favoriteDoc = await favoriteRef.get();
-    if (!favoriteDoc.exists) {
-      throw new Error("Favorite not found.");
-    }
+  static async getFavoriteStatus(userId, songId) {
+    const [rows] = await db.execute(
+      'SELECT * FROM user_favorites WHERE userId = ? AND songId = ?',
+      [userId, songId]
+    );
+    return rows.length > 0;
+  }
 
-    // Xóa favorite
-    await favoriteRef.delete();
+  static async getFavoriteCount(songId) {
+    const [rows] = await db.execute(
+      'SELECT COUNT(*) as count FROM user_favorites WHERE songId = ?',
+      [songId]
+    );
+    return rows[0].count;
+  }
+  static async getMostLikedSongs(limit = 10) {
+    const query = `
+        SELECT 
+            songs.id,
+            songs.title,
+            songs.image,
+            COUNT(user_favorites.songId) as favorite_count,
+            GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist
+        FROM songs
+        LEFT JOIN user_favorites ON songs.id = user_favorites.songId
+        LEFT JOIN song_artists ON songs.id = song_artists.songId
+        LEFT JOIN artists ON song_artists.artistId = artists.id
+        GROUP BY songs.id, songs.title, songs.image
+        ORDER BY favorite_count DESC
+        LIMIT ${parseInt(limit)}
+    `;
+    const [rows] = await db.execute(query);
+    return rows;
+  }
+
+  static async getFavoritesCountByGenre() {
+    const query = `
+          SELECT 
+              genres.name as genre,
+              COUNT(user_favorites.songId) as favorite_count
+          FROM genres
+          LEFT JOIN song_genres ON genres.id = song_genres.genreID
+          LEFT JOIN user_favorites ON song_genres.songID = user_favorites.songId
+          GROUP BY genres.id
+          ORDER BY favorite_count DESC
+      `;
+    const [rows] = await db.execute(query);
+    return rows;
   }
 }
 
-module.exports = new FavoriteModel();
+
+module.exports = FavoriteModel;

@@ -40,7 +40,7 @@ const getAllSongs = async (req, res) => {
   try {
 
     const songs = await SongModel.getAllSongs(true, page, limit, searchName, genres, minDuration, maxDuration, minListensCount,maxListensCount);
-    const totalCount = await SongModel.getSongCount();
+    const totalCount = await SongModel.getSongCount(searchName, genres, minDuration, maxDuration, minListensCount, maxListensCount);
     const totalPages = Math.ceil(totalCount / limit);
 
     res.status(200).json({
@@ -113,7 +113,7 @@ const createSong = async (req, res) => {
     const songId = await SongModel.createSong(newSong);
 
     const artistIDs = Array.isArray(artistID) ? artistID : [artistID];
-    const genreIDs = Array.isArray(genreID) ? genreID : [genreID].filter(id => id); // Đảm bảo genreID hợp lệ
+    const genreIDs = Array.isArray(genreID) ? genreID : [genreID].filter(id => id); 
     const albumIDs = Array.isArray(albumID) ? albumID : [albumID].filter(id => id); // Đảm bảo albumID hợp lệ
 
     if (artistIDs.length > 0) await SongModel.insertArtists(songId, artistIDs);
@@ -215,96 +215,61 @@ const deleteSong = async (req, res) => {
 
     const existingSong = await SongModel.getSongById(id);
     if (!existingSong) {
-      return res.status(404).json({ message: 'Artist not found' });
+      return res.status(404).json({ message: 'Song not found' });
     }
 
-    // Kiểm tra xem có hình ảnh hay không và định dạng có đúng hay không
-    if (existingSong.image) {
-      // Tạo đường dẫn tệp từ URL
-      const oldImagePath = existingSong.image.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
+    const { image, file_song } = existingSong;
+    let shouldDeleteImage = true;
+    if (image) {
+      const songsWithSameImage = await SongModel.getSongsByImage(image); 
+      if (songsWithSameImage.length > 1) {
+        shouldDeleteImage = false; 
+      }
+    }
+
+    if (shouldDeleteImage && image) {
+      const oldImagePath = image.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
       try {
-        // Xóa hình ảnh
-        await bucket.file(oldImagePath).delete();
-        console.log("Image deleted successfully.");
+        const file = bucket.file(oldImagePath);
+        const exists = await file.exists(); 
+        if (exists[0]) {
+          await file.delete();
+          console.log("Image deleted successfully.");
+        } else {
+          console.log("Image does not exist on Firebase, skipping deletion.");
+        }
       } catch (error) {
         console.error("Error deleting old image:", error);
         return res.status(500).json({ message: 'Error deleting old image', error: error.message });
       }
     }
-    if (existingSong.file_song) {
-      // Tạo đường dẫn tệp từ URL
-      const oldAudioPath = existingSong.file_song.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
+
+    if (file_song) {
+      const oldAudioPath = file_song.replace('https://storage.googleapis.com/', '').replace('be-musicheals-a6d7a.appspot.com/', '');
       try {
-        // Xóa audio
-        await bucket.file(oldAudioPath).delete();
-        console.log("Audio deleted successfully.");
+        const file = bucket.file(oldAudioPath);
+        const exists = await file.exists(); 
+        if (exists[0]) {
+          await file.delete();
+          console.log("Audio deleted successfully.");
+        } else {
+          console.log("Audio does not exist on Firebase, skipping deletion.");
+        }
       } catch (error) {
         console.error("Error deleting old audio:", error);
         return res.status(500).json({ message: 'Error deleting old audio', error: error.message });
       }
     }
     await SongModel.deleteSong(id);
-    res.json({ message: 'deleted successfully' });
+    res.json({ message: 'Deleted successfully' });
+
   } catch (error) {
-    console.error('Error deleting genre:', error);
-    res.status(500).json({ message: 'Error deleting genre', error: error.message });
-  }
-
-
-};
-
-// lấy các bài hát theo khoảng thời lượng (duration) cụ thể
-const getSongsByDuration = async (req, res) => {
-  try {
-    const { minDuration, maxDuration } = req.query;
-
-    // Validate parameters
-    if (!minDuration || !maxDuration) {
-      return res.status(400).json({
-        message: 'Both minDuration and maxDuration are required (in seconds)'
-      });
-    }
-
-    const min = parseInt(minDuration);
-    const max = parseInt(maxDuration);
-
-    if (isNaN(min) || isNaN(max)) {
-      return res.status(400).json({
-        message: 'Duration values must be numbers'
-      });
-    }
-
-    if (min > max) {
-      return res.status(400).json({
-        message: 'minDuration cannot be greater than maxDuration'
-      });
-    }
-
-    const songs = await SongModel.getSongsByDuration(min, max);
-    res.json(songs);
-  } catch (error) {
-    res.status(500).json({
-      message: 'Error retrieving songs',
-      error: error.message
-    });
+    console.error('Error deleting song:', error);
+    res.status(500).json({ message: 'Error deleting song', error: error.message });
   }
 };
-const getSongsByMood = async (req, res) => {
-  try {
-    const { mood } = req.query;
-    if (!mood) {
-      return res.status(400).json({ message: 'Mood parameter is required' });
-    }
-
-    const songs = await SongModel.getSongsByMood(mood);
-    res.json(songs);
-  } catch (error) {
-    res.status(500).json({ message: 'Error retrieving songs', error: error.message });
-  }
-
-};
 
 
 
 
-module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong, getSongsByDuration, getSongsByMood };
+module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong };

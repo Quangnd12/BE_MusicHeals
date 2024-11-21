@@ -68,13 +68,49 @@ class AlbumModel {
   static async getAlbumById(id) {
     const query = `
       SELECT 
-        albums.*,
-        (SELECT name FROM artists WHERE id = albums.artistID) as artistName
-      FROM albums
-      WHERE albums.id = ?
+        a.*,
+        (SELECT name FROM artists WHERE id = a.artistID) as artistName,
+        s.id as songId,
+        s.title as songTitle,
+        s.duration as songDuration,
+        s.file_song as songFile,
+        s.image as songImage,
+        s.lyrics as songLyrics,
+        GROUP_CONCAT(DISTINCT sa.artistId) as songArtistIds,
+        GROUP_CONCAT(DISTINCT art.name) as songArtistNames
+      FROM albums a
+      LEFT JOIN song_albums sa_album ON a.id = sa_album.albumID
+      LEFT JOIN songs s ON sa_album.songID = s.id
+      LEFT JOIN song_artists sa ON s.id = sa.songID
+      LEFT JOIN artists art ON sa.artistId = art.id
+      WHERE a.id = ?
+      GROUP BY a.id, s.id
     `;
+    
     const [rows] = await db.execute(query, [id]);
-    return rows[0];
+    
+    if (rows.length === 0) return null;
+  
+    // Xử lý kết quả để tạo cấu trúc album với danh sách bài hát
+    const album = {
+      id: rows[0].id,
+      title: rows[0].title,
+      image: rows[0].image,
+      releaseDate: rows[0].releaseDate,
+      artistName: rows[0].artistName,
+      songs: rows[0].songId ? rows.map(row => ({
+        id: row.songId,
+        title: row.songTitle,
+        duration: row.songDuration,
+        file: row.songFile,
+        image: row.songImage,
+        lyrics: row.songLyrics,
+        artistIds: row.songArtistIds ? row.songArtistIds.split(',').map(Number) : [],
+        artistNames: row.songArtistNames ? row.songArtistNames.split(',') : []
+      })) : []
+    };
+  
+    return album;
   }
 
   static async createAlbum(albumData) {

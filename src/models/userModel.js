@@ -3,6 +3,15 @@ const bcrypt = require("bcryptjs");
 const admin = require("firebase-admin");
 
 class UserModel {
+  static generateRandomPassword(length = 12) {
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let password = "";
+    for (let i = 0; i < length; i++) {
+      const randomIndex = Math.floor(Math.random() * charset.length);
+      password += charset[randomIndex];
+    }
+    return password;
+  }
   static async createUser(userData) {
     const {
       username,
@@ -41,25 +50,9 @@ class UserModel {
   }
 
   static async createUserWithGoogle(userData) {
-    const { username, email, avatar, role, idToken } = userData;
+    const { username, email, avatar, role } = userData;
    
     try {
-      // Verify the Firebase ID token
-      let decodedToken;
-      try {
-        decodedToken = await admin.auth().verifyIdToken(idToken);
-      } catch (tokenError) {
-        console.error("Token verification error:", tokenError);
-        throw new Error("Invalid token");
-      }
-
-      const googleEmail = decodedToken.email;
-     
-      // Verify email matches
-      if (googleEmail !== email) {
-        throw new Error("Email mismatch");
-      }
- 
       // Check if email exists
       const emailUsed = await UserModel.isEmailUsed(email);
       if (emailUsed) {
@@ -70,15 +63,16 @@ class UserModel {
         );
         return existingUser[0].id;
       }
-      console.log("username:", username);
-      console.log("email:", email);
-      console.log("avatar:", avatar);
-      console.log("role:", role);
+
+      // Generate a random password for Google users
+      const randomPassword = UserModel.generateRandomPassword();
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
       
-      // Create new user
+      // Create new user with random password
       const query = `
-        INSERT INTO users (username, email, avatar, role, password)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO users 
+        (username, email, avatar, role, password, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `;
      
       const [result] = await db.execute(query, [
@@ -86,7 +80,7 @@ class UserModel {
         email,
         avatar,
         role || 'user',
-        ''
+        hashedPassword
       ]);
  
       return result.insertId;

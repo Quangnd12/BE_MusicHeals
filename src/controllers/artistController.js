@@ -2,30 +2,41 @@ const ArtistModel = require('../models/artistModel');
 const { uploadToStorage } = require("../middlewares/uploadMiddleware");
 
 const getAllArtists = async (req, res) => {
-  const page = parseInt(req.query.page) || 1;  // Mặc định là 1 nếu không có giá trị
-  const limit = 4;  // Đặt limit là 15 cho mỗi trang
+  const page = parseInt(req.query.page) || 1; ; // Không đặt mặc định là 1
+  const limit = parseInt(req.query.limit) || 20;  // Không đặt mặc định là 4
 
-  if (page < 1) {
-    return res.status(400).json({ message: 'Page must be greater than 0.' });
+  // Nếu có `page` và `limit`, kiểm tra giá trị hợp lệ
+  if ((page && page < 1) || (limit && limit < 1)) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
   }
 
   try {
-    const artists = await ArtistModel.getAllArtist(page, limit);
+    let artists;
+    
+    // Nếu không có `page` hoặc `limit`, lấy tất cả nghệ sĩ mà không phân trang
+    if (!page || !limit) {
+      artists = await ArtistModel.getAllArtist();  // Gọi hàm mà không truyền `page` và `limit`
+      return res.status(200).json({ artists });
+    }
+
+    // Nếu có `page` và `limit`, lấy dữ liệu có phân trang
+    artists = await ArtistModel.getAllArtist(page, limit);
     const totalCount = await ArtistModel.getArtistCount();
     const totalPages = Math.ceil(totalCount / limit);
-    
+
     return res.status(200).json({
       artists,
       totalPages,
-      totalCount,  // Tổng số dòng dữ liệu trong bảng
-      currentPage: page,  // Trang hiện tại
-      limitPerPage: limit  // Số dòng dữ liệu trên mỗi trang (15)
+      totalCount,    // Tổng số dòng dữ liệu trong bảng
+      currentPage: page, // Trang hiện tại
+      limitPerPage: limit  // Số dòng dữ liệu trên mỗi trang
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error retrieving artists', error: error.message });
   }
 };
+
 
 const getArtistById = async (req, res) => {
   try {
@@ -61,19 +72,23 @@ const createArtist = async (req, res) => {
       newArtist.avatar = imagePublicUrl;
     }
 
+    // Kiểm tra xem tên nghệ sĩ đã tồn tại chưa
+    const artistExists = await ArtistModel.checkArtistExistsByName(name);
+    if (artistExists) {
+      return res.status(400).json({ message: 'Artist with this name already exists' });
+    }
+
     // Tạo nghệ sĩ trong database
     const artistId = await ArtistModel.createArtist(newArtist);
-    
+
     res.status(200).json({ id: artistId, ...newArtist });
 
   } catch (error) {
     console.error('Error creating artist:', error);
-    if (error.message === 'Artist with this name already exists') {
-      return res.status(400).json({ message: error.message });
-    }
     res.status(500).json({ message: 'Error creating artist', error: error.message });
   }
 };
+
 
 
 const updateArtist = async (req, res) => {
@@ -129,14 +144,42 @@ const deleteArtist = async (req, res) => {
       }
     }
 
-    // Delete the artist from the database
-    await ArtistModel.deleteArtist(id);
-    res.json({ message: 'Artist deleted successfully' });
+    // Mark the artist as deleted (soft delete)
+    await ArtistModel.softDeleteArtist(id);
+    res.json({ message: 'Artist marked as deleted successfully' });
   } catch (error) {
     console.error('Error deleting artist:', error);
     res.status(500).json({ message: 'Error deleting artist', error: error.message });
   }
 };
+
+// Khôi phục
+// Controller để khôi phục nghệ sĩ
+const restoreArtist = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Kiểm tra xem nghệ sĩ có tồn tại và đã bị xóa mềm chưa
+    const artist = await ArtistModel.getArtistById(id);
+    if (!artist) {
+      return res.status(404).json({ message: 'Nghệ sĩ không tìm thấy' });
+    }
+
+    if (!artist.is_deleted) {
+      return res.status(400).json({ message: 'Nghệ sĩ này chưa bị xóa' });
+    }
+
+    // Khôi phục nghệ sĩ (cập nhật is_deleted thành FALSE)
+    await ArtistModel.restoreArtist(id);
+    res.json({ message: 'Nghệ sĩ đã được khôi phục thành công' });
+
+  } catch (error) {
+    console.error('Lỗi khi khôi phục nghệ sĩ:', error);
+    res.status(500).json({ message: 'Lỗi khi khôi phục nghệ sĩ', error: error.message });
+  }
+};
+
+// Định nghĩa route để khôi phục nghệ sĩ
 
 
 
@@ -167,4 +210,4 @@ const searchArtists = async (req, res) => {
 };
 
 
-module.exports = { getAllArtists, getArtistById, createArtist, updateArtist, deleteArtist, searchArtists };
+module.exports = { getAllArtists, getArtistById, createArtist, updateArtist, deleteArtist, searchArtists, restoreArtist};

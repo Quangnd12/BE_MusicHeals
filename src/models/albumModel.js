@@ -16,34 +16,39 @@ class AlbumModel {
         IFNULL(
           GROUP_CONCAT(DISTINCT ar.name),
           (SELECT name FROM artists WHERE id = a.artistID)
-        ) as artistNames
+        ) as artistNames,
+        IFNULL(
+          GROUP_CONCAT(DISTINCT ar.avatar),
+          (SELECT avatar FROM artists WHERE id = a.artistID)
+        ) as artistAvatars
       FROM albums a
       LEFT JOIN album_artists aa ON a.id = aa.albumID
       LEFT JOIN artists ar ON ar.id = aa.artistID OR ar.id = a.artistID
     `;
-
+  
     // Chỉ thêm điều kiện search nếu có searchTerm
     if (searchTerm) {
       query += ` WHERE LOWER(a.title) LIKE LOWER(?)`;
     }
-
+  
     query += ` GROUP BY a.id, a.title, a.image, a.releaseDate, a.artistID`;
-
+  
     if (pagination) {
       const offset = (page - 1) * limit;
       query += ` LIMIT ${limit} OFFSET ${offset}`;
     }
-
+  
     const params = searchTerm ? [`%${searchTerm}%`] : [];
     const [rows] = await db.execute(query, params);
-
+  
     return rows.map(row => ({
       id: row.id,
       title: row.title,
       image: row.image,
       releaseDate: row.releaseDate,
       artistIDs: row.artistIDs ? row.artistIDs.split(',').map(id => parseInt(id)) : [],
-      artistNames: row.artistNames ? row.artistNames.split(',') : []
+      artistNames: row.artistNames ? row.artistNames.split(',') : [],
+      artistAvatars: row.artistAvatars ? row.artistAvatars.split(',') : []
     }));
   }
 

@@ -19,7 +19,7 @@ const upload = multer({
 
 // Public routes
 router.get('/discover', playlistController.getPublicPlaylists);
-
+router.get('/public/:id', playlistController.getPublicPlaylistById);
 // Protected routes
 router.use(authMiddleware);
 

@@ -2,55 +2,55 @@
 const db = require('../config/db');
 
 class AlbumModel {
- static async getAllAlbums(pagination = false, page, limit, searchTerm) {
-  let query = `
-    SELECT 
-      a.id,
-      a.title,
-      a.image,
-      a.releaseDate,
-      IFNULL(
-        GROUP_CONCAT(DISTINCT ar.id),
-        a.artistID
-      ) as artistIDs,
-      IFNULL(
-        GROUP_CONCAT(DISTINCT ar.name),
-        (SELECT name FROM artists WHERE id = a.artistID)
-      ) as artistNames,
-      IFNULL(
-        GROUP_CONCAT(DISTINCT ar.avatar),
-        (SELECT avatar FROM artists WHERE id = a.artistID)
-      ) as artistAvatars
-    FROM albums a
-    LEFT JOIN album_artists aa ON a.id = aa.albumID
-    LEFT JOIN artists ar ON ar.id = aa.artistID OR ar.id = a.artistID
-  `;
-
-  // Điều kiện tìm kiếm
-  if (searchTerm) {
-    query += ` WHERE LOWER(a.title) LIKE LOWER(?)`;
+  static async getAllAlbums(pagination = false, page, limit, searchTerm) {
+    let query = `
+      SELECT 
+        a.id,
+        a.title,
+        a.image,
+        a.releaseDate,
+        IFNULL(
+          GROUP_CONCAT(DISTINCT ar.id),
+          a.artistID
+        ) as artistIDs,
+        IFNULL(
+          GROUP_CONCAT(DISTINCT ar.name),
+          (SELECT name FROM artists WHERE id = a.artistID)
+        ) as artistNames,
+        IFNULL(
+          GROUP_CONCAT(DISTINCT ar.avatar),
+          (SELECT avatar FROM artists WHERE id = a.artistID)
+        ) as artistAvatars
+      FROM albums a
+      LEFT JOIN album_artists aa ON a.id = aa.albumID
+      LEFT JOIN artists ar ON ar.id = aa.artistID OR ar.id = a.artistID
+    `;
+  
+    // Chỉ thêm điều kiện search nếu có searchTerm
+    if (searchTerm) {
+      query += ` WHERE LOWER(a.title) LIKE LOWER(?)`;
+    }
+  
+    query += ` GROUP BY a.id, a.title, a.image, a.releaseDate, a.artistID`;
+  
+    if (pagination) {
+      const offset = (page - 1) * limit;
+      query += ` LIMIT ${limit} OFFSET ${offset}`;
+    }
+  
+    const params = searchTerm ? [`%${searchTerm}%`] : [];
+    const [rows] = await db.execute(query, params);
+  
+    return rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      image: row.image,
+      releaseDate: row.releaseDate,
+      artistIDs: row.artistIDs ? row.artistIDs.split(',').map(id => parseInt(id)) : [],
+      artistNames: row.artistNames ? row.artistNames.split(',') : [],
+      artistAvatars: row.artistAvatars ? row.artistAvatars.split(',') : []
+    }));
   }
-
-  query += ` GROUP BY a.id, a.title, a.image, a.releaseDate, a.artistID`;
-
-  if (pagination) {
-    const offset = (page - 1) * limit;
-    query += ` LIMIT ${limit} OFFSET ${offset}`;
-  }
-
-  const params = searchTerm ? [`%${searchTerm}%`] : [];
-  const [rows] = await db.execute(query, params);
-
-  return rows.map(row => ({
-    id: row.id,
-    title: row.title,
-    image: row.image,
-    releaseDate: row.releaseDate,
-    artistIDs: row.artistIDs ? row.artistIDs.split(',').map(id => parseInt(id)) : [],
-    artistNames: row.artistNames ? row.artistNames.split(',') : [],
-    artistAvatars: row.artistAvatars ? row.artistAvatars.split(',') : []
-  }));
-}
 
   // Đồng thời cập nhật hàm getAlbumCount
   static async getAlbumCount(searchTerm) {

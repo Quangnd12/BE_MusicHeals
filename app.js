@@ -24,6 +24,8 @@ const playlistRoutes = require('./src/routes/playlistRoutes');
 const songArtistRoutes = require('./src/routes/song-artistRoutes');
 const ratingRoutes = require("./src/routes/ratingRoutes");
 const eventRoutes = require('./src/routes/eventRoutes');
+const mixRoutes = require('./src/routes/mixRoutes');
+
 const app = express();
 
 app.use(bodyParser.json());
@@ -69,6 +71,7 @@ app.use('/api/ratings', ratingRoutes);
 app.use('/api/follows', followRoutes);
 app.use('/api/events', eventRoutes);
 
+app.use('/api/mixes', mixRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

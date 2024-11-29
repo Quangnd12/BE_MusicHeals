@@ -97,12 +97,12 @@ const deletePlaylist = async (req, res) => {
 
 const getPublicPlaylists = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      sortBy = 'createdAt', 
-      sortOrder = 'DESC', 
-      search = '' 
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
+      search = ''
     } = req.query;
 
     // Validate pagination params
@@ -143,7 +143,54 @@ const getPublicPlaylists = async (req, res) => {
   } catch (error) {
     console.error('Error fetching public playlists:', error);
     res.status(500).json({
-      success: false, 
+      success: false,
+      message: 'Internal Server Error'
+    });
+  }
+};
+const getPublicPlaylistById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const playlist = await PlaylistModel.getPlaylistById(id);
+    if (!playlist) {
+      return res.status(404).json({
+        success: false,
+        message: 'Playlist not found'
+      });
+    }
+
+    // Check if playlist is public
+    if (!playlist.isPublic) {
+      return res.status(403).json({
+        success: false,
+        message: 'This playlist is private'
+      });
+    }
+
+    // Get songs for public playlist
+    const songs = await PlaylistModel.getPlaylistSongs(id);
+
+    // Return playlist with songs
+    res.json({
+      success: true,
+      data: {
+        ...playlist,
+        songs: songs.map(song => ({
+          id: song.id,
+          title: song.title,
+          duration: song.duration,
+          artistNames: song.artistNames?.split(',') || [],
+          albumNames: song.albumNames?.split(',') || [],
+          coverImage: song.coverImage,
+          audioUrl: song.audioUrl
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Get public playlist error:', error);
+    res.status(500).json({
+      success: false,
       message: 'Internal Server Error'
     });
   }
@@ -162,6 +209,7 @@ const getPlaylistById = async (req, res) => {
       });
     }
 
+    // Allow access if user owns the playlist or if it's public
     if (!playlist.isPublic && playlist.userId !== userId) {
       return res.status(403).json({
         success: false,
@@ -172,7 +220,18 @@ const getPlaylistById = async (req, res) => {
     const songs = await PlaylistModel.getPlaylistSongs(id);
     res.json({
       success: true,
-      data: { ...playlist, songs }
+      data: {
+        ...playlist,
+        songs: songs.map(song => ({
+          id: song.id,
+          title: song.title,
+          duration: song.duration,
+          artistNames: song.artistNames?.split(',') || [],
+          albumNames: song.albumNames?.split(',') || [],
+          coverImage: song.coverImage,
+          audioUrl: song.audioUrl
+        }))
+      }
     });
   } catch (error) {
     console.error('Get playlist error:', error);
@@ -262,5 +321,6 @@ module.exports = {
   getPlaylistById,
   getUserPlaylists,
   addSongToPlaylist,
-  removeSongFromPlaylist
+  removeSongFromPlaylist,
+  getPublicPlaylistById
 };

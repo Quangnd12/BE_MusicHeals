@@ -6,8 +6,8 @@ const { bucket } = require("../config/firebase");
 const { Readable } = require('stream');
 const os = require('os');
 
-ffmpeg.setFfmpegPath("E:/DỰ ÁN TỐT NGHIỆP/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe");
-ffmpeg.setFfprobePath("E:/DỰ ÁN TỐT NGHIỆP/ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe");
+ffmpeg.setFfmpegPath("D:/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe");
+ffmpeg.setFfprobePath("D:/ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe");
 
 class MixModel {
     // Phân tích audio để lấy thông tin

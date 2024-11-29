@@ -1,22 +1,26 @@
 const db = require('../config/db');
 
 class ArtistModel {
-
-  static async getAllArtist(page, limit) {  // Đặt limit mặc định là 15
+  static async getAllArtist(page, limit) {
     const offset = (page - 1) * limit;
-    const query = `SELECT 
-      id,
-      name,
-      avatar,
-      role,
-      biography
+
+    const query = `
+      SELECT 
+        artists.id AS id,
+        artists.name AS name,
+        artists.avatar AS avatar,
+        artists.role AS role,
+        artists.biography AS biography
       FROM artists
-      LIMIT ${limit} OFFSET ${offset}`;
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
     const [rows] = await db.execute(query);
     return rows;
-  }
+}
 
- 
+  
+
   static async getArtistCount() {
     const query = 'SELECT COUNT(*) as count FROM artists';
     const [rows] = await db.execute(query);
@@ -24,34 +28,72 @@ class ArtistModel {
   }
 
   static async getArtistById(id) {
-    const query = 'SELECT * FROM artists WHERE id = ? AND is_deleted = FALSE';
-    const [rows] = await db.execute(query, [id]);
-    return rows[0];  // Trả về nghệ sĩ nếu có, hoặc undefined nếu không có
-  }
-  
+    const query = `
+      SELECT 
+        artists.id AS artistId,
+        artists.name AS artistName,
+        artists.avatar AS artistAvatar,
+        artists.role AS artistRole,
+        artists.biography AS artistBiography,
+        songs.id AS songId,
+        songs.title AS songTitle,
+        songs.duration AS songDuration,
+        songs.file_song AS songFile,
+        songs.image AS songImage,
+        songs.lyrics AS songLyrics
+      FROM artists
+      LEFT JOIN song_artists ON artists.id = song_artists.artistId
+      LEFT JOIN songs ON song_artists.songId = songs.id
+      WHERE artists.id = ?
+    `;
 
-  
+    const [rows] = await db.execute(query, [id]);
+
+    if (rows.length === 0) {
+        return null; // Không tìm thấy nghệ sĩ
+    }
+
+    const artist = {
+        id: rows[0].artistId,
+        name: rows[0].artistName,
+        avatar: rows[0].artistAvatar,
+        role: rows[0].artistRole,
+        biography: rows[0].artistBiography,
+        songs: []
+    };
+
+    rows.forEach(row => {
+        if (row.songId) {
+            artist.songs.push({
+                id: row.songId,
+                title: row.songTitle,
+                duration: row.songDuration,
+                file: row.songFile,
+                image: row.songImage,
+                lyrics: row.songLyrics
+            });
+        }
+    });
+
+    return artist;
+}
+
 
   static async checkArtistExistsByName(name) {
     const checkQuery = 'SELECT * FROM artists WHERE name = ?';
     const [checkRows] = await db.execute(checkQuery, [name]);
     return checkRows.length > 0;
   }
-  
+
   static async createArtist(artistData) {
     const { name, avatar = null, role, biography = null } = artistData;
-  
-    // Thêm nghệ sĩ vào bảng artists
     const query = 'INSERT INTO artists (name, avatar, role, biography) VALUES (?, ?, ?, ?)';
     const [result] = await db.execute(query, [name, avatar, role, biography]);
     return result.insertId;
   }
-  
-  
 
   static async updateArtist(id, artistData) {
     const { name, avatar, role, biography } = artistData;
-
     const existingArtist = await db.execute('SELECT * FROM artists WHERE name = ? AND id != ?', [name, id]);
     if (existingArtist[0].length > 0) {
       throw new Error('An artist with this name already exists');
@@ -61,37 +103,17 @@ class ArtistModel {
     await db.execute(query, [name, avatar, role, biography, id]);
   }
 
-
   static async deleteArtist(id) {
     const query = 'DELETE FROM artists WHERE id = ?';
     await db.execute(query, [id]);
   }
 
-  static async softDeleteArtist(id) {
-    const query = 'UPDATE artists SET is_deleted = TRUE WHERE id = ?';
-    await db.execute(query, [id]);
-  }
-  
-  // Phương thức Model để khôi phục nghệ sĩ
-static async restoreArtist(id) {
-  const query = 'UPDATE artists SET is_deleted = FALSE WHERE id = ?';
-  await db.execute(query, [id]);
-}
-
   static async searchArtistsByName(name) {
-    const query = `
-      SELECT id, name, avatar, role, biography
-      FROM artists
-      WHERE LOWER(name) LIKE ?`; // Dùng LOWER để không phân biệt hoa thường
-  
-    // Thay đổi cách xử lý khoảng trắng và tên tìm kiếm
-    const searchName = `%${name.trim().toLowerCase()}%`; // Loại bỏ khoảng trắng đầu và cuối, nhưng giữ nguyên khoảng trắng giữa các từ
-    const [rows] = await db.execute(query, [searchName]); // Truyền tên đã chỉnh sửa vào câu truy vấn
+    const query = `SELECT id, name, avatar, role, biography FROM artists WHERE LOWER(name) LIKE ?`;
+    const searchName = `%${name.trim().toLowerCase()}%`;
+    const [rows] = await db.execute(query, [searchName]);
     return rows;
   }
 }
-
-
-
 
 module.exports = ArtistModel;

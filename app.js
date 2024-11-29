@@ -25,6 +25,9 @@ const songArtistRoutes = require('./src/routes/song-artistRoutes');
 const ratingRoutes = require("./src/routes/ratingRoutes");
 const eventRoutes = require('./src/routes/eventRoutes');
 const mixRoutes = require('./src/routes/mixRoutes');
+const historyRoutes = require("./src/routes/historyRoutes");
+const payRoutes = require("./src/routes/payRoutes");
+const { authMiddleware } = require('./src/middlewares/authMiddleware');
 
 const app = express();
 
@@ -59,10 +62,10 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/auth", authRoutes);
 app.use("/api/artists", artistRoutes);
 app.use("/api", followRoutes);
-app.use("/api/genres", genreRoutes);
+app.use("/api/genres",genreRoutes);
 app.use("/api/albums", albumRoutes);
 app.use('/api/favorites', favoriteRoutes);
-app.use("/api/songs", songRoutes);
+app.use("/api/songs",songRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use("/api/countries", countryRoutes);
 app.use('/api/playlists', playlistRoutes);
@@ -72,6 +75,8 @@ app.use('/api/follows', followRoutes);
 app.use('/api/events', eventRoutes);
 
 app.use('/api/mixes', mixRoutes);
+app.use('/api/histories', historyRoutes);
+app.use('/api/payment', payRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

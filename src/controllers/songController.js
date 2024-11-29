@@ -74,10 +74,24 @@ const getSongById = async (req, res) => {
   }
 };
 
+const UpdatePlayCount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const song = await SongModel.UpdatePlayCount(id);
+
+    if (!song) {
+      return res.status(404).json({ message: 'Song not found' });
+    }
+
+    res.json(song);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving song', error: error.message });
+  }
+};
 
 const createSong = async (req, res) => {
   try {
-    const { title, artistID, albumID, genreID, lyrics, duration, releaseDate, is_explicit } = req.body;
+    const { title, artistID, albumID, genreID, lyrics, duration, releaseDate, is_explicit,is_premium } = req.body;
 
     // Kiểm tra các trường bắt buộc
     if (!title || !artistID || !genreID) {
@@ -91,17 +105,15 @@ const createSong = async (req, res) => {
       releaseDate,
       is_explicit: is_explicit || 0,
       listens_count: 0,
+      is_premium:is_premium || 0
     };
 
     if (req.files) {
-      // Xử lý upload hình ảnh nếu có
       if (req.files.image && req.files.image.length > 0) {
         const imageFile = req.files.image[0];
         const imagePublicUrl = await uploadToStorage(imageFile, 'songs/images');
         newSong.image = imagePublicUrl;
       }
-
-      // Xử lý upload file nhạc nếu có
       if (req.files.file_song && req.files.file_song.length > 0) {
         const audioFile = req.files.file_song[0];
         const audioPublicUrl = await uploadToStorage(audioFile, 'songs/audio');
@@ -164,7 +176,6 @@ const updateSong = async (req, res) => {
       file_song: existingSong.file_song // Giữ nguyên file nhạc cũ
     };
 
-    // Xử lý upload hình ảnh nếu có
     if (req.files) {
       if (req.files.image && req.files.image.length > 0) {
         const imageFile = req.files.image[0];
@@ -272,4 +283,4 @@ const deleteSong = async (req, res) => {
 
 
 
-module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong };
+module.exports = { getAllSongs, getSongById, createSong, updateSong, deleteSong,UpdatePlayCount };

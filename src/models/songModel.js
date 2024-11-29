@@ -17,6 +17,7 @@ class SongModel {
         songs.listens_count,
         songs.releaseDate,
         songs.is_explicit,
+        songs.is_premium,
         GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
         GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
         GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
@@ -141,6 +142,7 @@ static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration 
     songs.listens_count,
     songs.releaseDate,
     songs.is_explicit,
+    songs.is_premium,
     GROUP_CONCAT(DISTINCT artists.name SEPARATOR ', ') AS artist,
     GROUP_CONCAT(DISTINCT albums.title SEPARATOR ', ') AS album,
     GROUP_CONCAT(DISTINCT genres.name SEPARATOR ', ') AS genre,
@@ -168,6 +170,12 @@ static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration 
     return rows;
   }
 
+  static async UpdatePlayCount(id) {
+    const query = `UPDATE songs SET listens_Count =listens_Count  + 1 WHERE id = ?`;
+    const [rows] = await db.execute(query, [id]);
+    return rows;
+  }
+
   static async createSong(songData) {
     const {
       title,
@@ -179,14 +187,15 @@ static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration 
       duration,
       releaseDate,
       listens_count = 0,
+      is_premium=0
 
     } = songData;
 
     const lyrics = await lyricsFinder(artistID, title) || "Not Found!";  
     const cleanLyrics = lyrics ? leoProfanity.clean(lyrics) : null;
     const is_explicit = lyrics && leoProfanity.check(lyrics) ? 1 : 0;
-    const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-    const [result] = await db.execute(query, [title, image, file_song, cleanLyrics, duration, listens_count, releaseDate, is_explicit]);
+    const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit,is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const [result] = await db.execute(query, [title, image, file_song, cleanLyrics, duration, listens_count, releaseDate, is_explicit,is_premium]);
     const songId = result.insertId;
 
     if (artistID && artistID.length > 0) {

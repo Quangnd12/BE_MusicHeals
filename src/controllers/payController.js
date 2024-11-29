@@ -198,7 +198,7 @@ const sendNotification = async (userEmail) => {
               Nếu bạn muốn gia hạn đăng ký, hãy nhấn vào nút bên dưới:
             </p>
             <div style="text-align: center; margin-top: 20px;">
-              <a href="${process.env.CLIENT_URL}/login" style="text-decoration: none; background-color: #1a73e8; color: white; padding: 12px 25px; border-radius: 4px; font-size: 16px;">
+              <a href="${process.env.CLIENT_URL}/upgrade" style="text-decoration: none; background-color: #1a73e8; color: white; padding: 12px 25px; border-radius: 4px; font-size: 16px;">
                 Gia Hạn Ngay
               </a>
             </div>

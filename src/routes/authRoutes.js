@@ -2,6 +2,7 @@ const express = require('express');
 const AuthController = require('../controllers/authController');
 const router = express.Router();
 const multer = require('multer');
+const { authMiddleware } = require('../middlewares/authMiddleware');
 
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -24,13 +25,16 @@ router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);
 router.post("/login/google", AuthController.googleLogin);
 router.post('/register/google', AuthController.createUserWithGoogle);
+router.post("/forgot-password", AuthController.forgotPassword);
+router.post("/reset-password/:token", AuthController.resetPassword);
+
+
+router.use(authMiddleware);
 router.get('/:id', AuthController.getUser);
 router.put('/:id', upload.single('avatar'), AuthController.updateUser);
 router.delete('/:id', AuthController.deleteUser);
 router.get('/', AuthController.getAllUsers);
 router.post("/logout", AuthController.logout);
-router.post("/forgot-password", AuthController.forgotPassword);
-router.post("/reset-password/:token", AuthController.resetPassword);
 router.post('/upload-avatar/:id', upload.single('avatar'), AuthController.uploadAvatar);
 
 module.exports = router;

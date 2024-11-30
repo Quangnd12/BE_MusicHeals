@@ -148,6 +148,53 @@ const getPublicPlaylists = async (req, res) => {
     });
   }
 };
+const getPublicPlaylistById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const playlist = await PlaylistModel.getPlaylistById(id);
+    if (!playlist) {
+      return res.status(404).json({
+        success: false,
+        message: 'Playlist not found'
+      });
+    }
+
+    // Check if playlist is public
+    if (!playlist.isPublic) {
+      return res.status(403).json({
+        success: false,
+        message: 'This playlist is private'
+      });
+    }
+
+    // Get songs for public playlist
+    const songs = await PlaylistModel.getPlaylistSongs(id);
+
+    // Return playlist with songs
+    res.json({
+      success: true,
+      data: {
+        ...playlist,
+        songs: songs.map(song => ({
+          id: song.id,
+          title: song.title,
+          duration: song.duration,
+          artistNames: song.artistNames?.split(',') || [],
+          albumNames: song.albumNames?.split(',') || [],
+          coverImage: song.coverImage,
+          audioUrl: song.audioUrl
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Get public playlist error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal Server Error'
+    });
+  }
+};
 
 const getPlaylistById = async (req, res) => {
   try {
@@ -262,5 +309,6 @@ module.exports = {
   getPlaylistById,
   getUserPlaylists,
   addSongToPlaylist,
-  removeSongFromPlaylist
+  removeSongFromPlaylist,
+  getPublicPlaylistById
 };

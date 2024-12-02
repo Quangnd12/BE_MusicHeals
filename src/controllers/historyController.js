@@ -14,31 +14,30 @@ const getAllListeningHistories = async (req, res) => {
 // Lấy lịch sử nghe theo ID
 const getListeningHistoryById = async (req, res) => {
   try {
-    const { id } = req.params;
-    const listeningHistory = await HistorySongModel.getHistoryById(id);
+    const {id} = req.params;
+    const History = await HistorySongModel.getHistoryById(id);
 
-    if (!listeningHistory) {
+    if (!History) {
       return res.status(404).json({ message: 'Listening history not found' });
     }
 
-    res.json(listeningHistory);
+    res.json({History});
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving listening history', error: error.message });
   }
 };
 
-// Thêm lịch sử nghe
 const createListeningHistory = async (req, res) => {
   try {
-    const { songID } = req.body;
-    const userID = req.user.id;
+    const {userID,songID } = req.body;
 
+    console.log(req.body);
     if (!userID || !songID) {
       return res.status(400).json({ message: 'userID, songID are required' });
     }
 
     const checkHistory = await HistorySongModel.getHistoryById(userID)
-    if (checkHistory) {
+    if (checkHistory.songId === songID) {
       return res.status(400).json({ message: 'History record already exists for this user' });
     }
     const newHistory = { userID, songID };
@@ -52,10 +51,8 @@ const createListeningHistory = async (req, res) => {
 };
 
 
-
 module.exports = {
   getAllListeningHistories,
   getListeningHistoryById,
   createListeningHistory,
-
 };

@@ -2,13 +2,13 @@ const db = require('../config/db');
 
 class HistorySongModel {
 
-  // Lấy toàn bộ lịch sử nghe nhạc
-  static async getAllHistory() {
-    let query = `
+    // Lấy toàn bộ lịch sử nghe nhạc
+    static async getAllHistory() {
+        let query = `
     SELECT 
     users.username,
-    users.id AS userId,
-    songs.id AS songId,
+    users.id AS userID,
+    songs.id AS songID,
     songs.title,
     songs.image,
     songs.file_song,
@@ -46,12 +46,12 @@ LEFT JOIN countries
     ON genres.countryID = countries.id
 GROUP BY histories.id
     `;
-    const [rows] = await db.execute(query);
-    return rows;
-  }
+        const [rows] = await db.execute(query);
+        return rows;
+    }
 
-  static async getHistoryById(id) {
-    const query = `
+    static async getHistoryById(id) {
+        const query = `
     SELECT 
     users.username,
     users.id AS userId,
@@ -96,16 +96,16 @@ GROUP BY
 songs.id, 
 users.id, 
 histories.listeningDate`;
-    const [rows] = await db.execute(query, [id]);
-    return rows[0];
-  }
+        const [rows] = await db.execute(query, [id]);
+        return rows;
+    }
 
-  static async createHistory(historyData) {
-    const { userID, songID } = historyData;
-      const query = "INSERT INTO histories (userID, songID)  VALUES (?, ?)";
-      const [result] = await db.execute(query, [userID, songID]);
-      return result.insertId;
-  }
+    static async createHistory(historyData) {
+        const { userID, songID} = historyData;
+        const query = "INSERT INTO histories (userID, songID)  VALUES (?, ?)";
+        const [result] = await db.execute(query, [userID, songID]);
+        return result;
+    }
 }
 
 module.exports = HistorySongModel;

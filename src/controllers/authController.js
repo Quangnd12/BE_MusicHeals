@@ -395,9 +395,6 @@ class AuthController {
         .update(resetToken)
         .digest("hex");
   
-      console.log("Generated token for URL:", resetToken);
-      console.log("Hashed token for DB:", resetTokenHash);
-  
       // Set expiry to 1 hour from now
       const resetTokenExpiry = new Date(Date.now() + 3600000);
   
@@ -408,38 +405,249 @@ class AuthController {
       let resetUrl;
       let emailContent;
   
+      // Template cơ bản
+      const baseTemplate = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+              
+              body {
+                font-family: 'Poppins', sans-serif;
+                line-height: 1.6;
+                color: #333333;
+                margin: 0;
+                padding: 0;
+                background-color: #f4f4f4;
+              }
+              
+              .email-wrapper {
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+              
+              .email-container {
+                background: #ffffff;
+                border-radius: 20px;
+                overflow: hidden;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+              }
+              
+              .email-header {
+                padding: 40px 20px;
+                text-align: center;
+                position: relative;
+              }
+              
+              .email-header.admin {
+                background: linear-gradient(45deg, #4F46E5 0%, #7C3AED 100%);
+              }
+              
+              .email-header.client {
+                background: linear-gradient(45deg, #FF6B6B 0%, #FFE66D 100%);
+              }
+              
+              .logo {
+                width: 150px;
+                height: auto;
+                margin-bottom: 15px;
+              }
+              
+              .email-header h1 {
+                color: #ffffff;
+                font-size: 28px;
+                font-weight: 600;
+                margin: 0;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+              }
+              
+              .email-content {
+                padding: 40px 30px;
+              }
+              
+              .greeting {
+                font-size: 22px;
+                font-weight: 600;
+                color: #2D3436;
+                margin-bottom: 20px;
+              }
+              
+              .message {
+                color: #636E72;
+                font-size: 16px;
+                line-height: 1.8;
+                margin-bottom: 30px;
+              }
+              
+              .button-container {
+                text-align: center;
+                margin: 35px 0;
+              }
+              
+              .reset-button {
+                display: inline-block;
+                text-decoration: none;
+                padding: 15px 40px;
+                border-radius: 50px;
+                font-weight: 600;
+                font-size: 16px;
+                transition: all 0.3s ease;
+                color: #ffffff;
+              }
+              
+              .reset-button.admin {
+                background: linear-gradient(45deg, #4F46E5 0%, #7C3AED 100%);
+                box-shadow: 0 4px 15px rgba(79, 70, 229, 0.2);
+                color: white
+              }
+              
+              .reset-button.client {
+                background: linear-gradient(45deg, #FF6B6B 0%, #FFE66D 100%);
+                box-shadow: 0 4px 15px rgba(255, 107, 107, 0.2);
+                color: white
+              }
+              
+              .reset-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+              }
+              
+              .security-notice {
+                background: #F8F9FA;
+                border-radius: 12px;
+                padding: 20px;
+                margin: 30px 0;
+              }
+              
+              .security-notice.admin {
+                border-left: 4px solid #4F46E5;
+              }
+              
+              .security-notice.client {
+                border-left: 4px solid #FF6B6B;
+              }
+              
+              .footer {
+                text-align: center;
+                padding: 30px;
+                background: #F8F9FA;
+                color: #636E72;
+                font-size: 14px;
+              }
+            </style>
+          </head>
+      `;
+  
       if (user.role === 'admin') {
         resetUrl = `${process.env.ADMIN_URL}/reset-password/${resetToken}`;
         emailContent = `
-          <h2>Password Reset Request - Admin Account</h2>
-          <p>You requested to reset your password for your admin account.</p>
-          <p><a href="${resetUrl}" target="_blank">Click here to reset your password</a></p>
-          <p>If you didn't request this, please ignore this email.</p>
-          <p>This link will expire in 1 hour.</p>
-          <p>Note: This reset link is specifically for admin accounts.</p>
+          ${baseTemplate}
+          <body>
+            <div class="email-wrapper">
+              <div class="email-container">
+                <div class="email-header admin">
+                  <h1>Yêu Cầu Đặt Lại Mật Khẩu Admin</h1>
+                </div>
+                
+                <div class="email-content">
+                  <div class="greeting">
+                    Xin chào ${user.username || 'Admin'}!
+                  </div>
+                  
+                  <div class="message">
+                    Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản admin của bạn trên MusicHeals.
+                    Để bảo vệ tài khoản của bạn, vui lòng đặt lại mật khẩu bằng cách nhấp vào nút bên dưới.
+                  </div>
+                  
+                  <div class="button-container">
+                    <a href="${resetUrl}" class="reset-button admin" target="_blank">
+                      Đặt Lại Mật Khẩu Admin
+                    </a>
+                  </div>
+                  
+                  <div class="security-notice admin">
+                    <strong>Lưu ý bảo mật:</strong>
+                    <ul>
+                      <li>Link này chỉ dành riêng cho tài khoản admin</li>
+                      <li>Link sẽ hết hạn sau 1 giờ</li>
+                      <li>Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này và liên hệ với đội ngũ kỹ thuật</li>
+                    </ul>
+                  </div>
+                </div>
+                
+                <div class="footer">
+                  <p>© ${new Date().getFullYear()} MusicHeals. All rights reserved.</p>
+                  <p>Email này được gửi tự động, vui lòng không trả lời.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
         `;
       } else {
         resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
         emailContent = `
-          <h2>Password Reset Request</h2>
-          <p>You requested to reset your password.</p>
-          <p><a href="${resetUrl}" target="_blank">Click here to reset your password</a></p>
-          <p>If you didn't request this, please ignore this email.</p>
-          <p>This link will expire in 1 hour.</p>
+          ${baseTemplate}
+          <body>
+            <div class="email-wrapper">
+              <div class="email-container">
+                <div class="email-header client">
+                  <img src="https://storage.googleapis.com/music-app/logo-white.png" alt="MusicHeals Logo" class="logo">
+                  <h1>Đặt Lại Mật Khẩu</h1>
+                </div>
+                
+                <div class="email-content">
+                  <div class="greeting">
+                    Xin chào ${user.username || 'bạn'}!
+                  </div>
+                  
+                  <div class="message">
+                    Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn trên MusicHeals.
+                    Để tiếp tục trải nghiệm âm nhạc, vui lòng đặt lại mật khẩu bằng cách nhấp vào nút bên dưới.
+                  </div>
+                  
+                  <div class="button-container">
+                    <a href="${resetUrl}" class="reset-button client" target="_blank">
+                      Đặt Lại Mật Khẩu
+                    </a>
+                  </div>
+                  
+                  <div class="security-notice client">
+                    <strong>Lưu ý:</strong>
+                    <ul>
+                      <li>Link sẽ hết hạn sau 1 giờ</li>
+                      <li>Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này</li>
+                      <li>Để được hỗ trợ, hãy liên hệ với chúng tôi qua email support@musicheals.com</li>
+                    </ul>
+                  </div>
+                </div>
+                
+                <div class="footer">
+                  <p>© ${new Date().getFullYear()} MusicHeals. All rights reserved.</p>
+                  <p>Email này được gửi tự động, vui lòng không trả lời.</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
         `;
       }
   
-      await sendEmail(user.email, "Password Reset Request", emailContent);
+      await sendEmail(user.email, "Đặt Lại Mật Khẩu MusicHeals", emailContent);
   
       res.status(200).json({
         success: true,
-        message: "Password reset link sent to email",
+        message: "Link đặt lại mật khẩu đã được gửi đến email của bạn",
       });
     } catch (error) {
       console.error("Error in forgotPassword:", error);
       res.status(500).json({
         success: false,
-        message: "Error sending password reset email",
+        message: "Lỗi khi gửi email đặt lại mật khẩu",
         error: error.message
       });
     }

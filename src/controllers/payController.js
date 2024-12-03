@@ -24,27 +24,49 @@ const Payment = async (req, res) => {
   }
 };
 
-// const Paypal= async (req, res)=>{
+const getAllPayment = async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 5;
+  const searchName = req.query.searchName || '';
 
+  if (!page && !limit) {
+    try {
+      const payment = await PaymentModel.getAllPayment(false, null, null, searchName);
+      return res.status(200).json({ payment });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: 'Error retrieving payment', error: error.message });
+    }
+  }
 
-//   // Tạo đơn hàng
-//   async function createOrder() {
-//       const  request = new paypal.orders.OrdersCreateRequest();
-//       request.requestBody({
-//           intent: 'CAPTURE',
-//           purchase_units: [{
-//               amount: {
-//                   currency_code: 'USD',
-//                   value: '10.00'
-//               }
-//           }]
-//       });
+  if (page < 1 || limit < 1) {
+    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
+  }
 
-//       const  response = await client.execute(request);
-//       console.log(response.result);
-//       return response.result;
-//   }
-// }
+  try {
+
+    let payment;
+    if (!req.query.page || !req.query.limit) {
+      payment = await PaymentModel.getAllPayment(false, null, null, searchName);
+      return res.status(200).json({ payment });
+    }
+
+    payment = await PaymentModel.getAllPayment(true, page, limit, searchName);
+    const totalCount = await PaymentModel.getCount();
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return res.status(200).json({
+      payment,
+      totalPages,
+      totalCount,
+      limit,
+      currentPage: page
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error retrieving payment', error: error.message });
+  }
+};
 
 
 const addPayments = async (req, res) => {
@@ -198,7 +220,7 @@ const sendNotification = async (userEmail) => {
               Nếu bạn muốn gia hạn đăng ký, hãy nhấn vào nút bên dưới:
             </p>
             <div style="text-align: center; margin-top: 20px;">
-              <a href="${process.env.CLIENT_URL}/login" style="text-decoration: none; background-color: #1a73e8; color: white; padding: 12px 25px; border-radius: 4px; font-size: 16px;">
+              <a href="${process.env.CLIENT_URL}/upgrade" style="text-decoration: none; background-color: #1a73e8; color: white; padding: 12px 25px; border-radius: 4px; font-size: 16px;">
                 Gia Hạn Ngay
               </a>
             </div>
@@ -322,4 +344,4 @@ const sendBill = async (userEmail, amount, subscription_date, expiry_date) => {
 };
 
 
-module.exports = { Payment, updateExpiringPayments, addPayments, getPaymentByUser, renewPayments };
+module.exports = { Payment, updateExpiringPayments, addPayments, getPaymentByUser, renewPayments,getAllPayment };

@@ -156,7 +156,7 @@ const getPublicPlaylistById = async (req, res) => {
     if (!playlist) {
       return res.status(404).json({
         success: false,
-        message: 'Playlist not found'
+        message: 'Playlist not found',
       });
     }
 
@@ -164,14 +164,14 @@ const getPublicPlaylistById = async (req, res) => {
     if (!playlist.isPublic) {
       return res.status(403).json({
         success: false,
-        message: 'This playlist is private'
+        message: 'This playlist is private',
       });
     }
 
     // Get songs for public playlist
     const songs = await PlaylistModel.getPlaylistSongs(id);
 
-    // Return playlist with songs
+    // Return playlist with songs, including lyrics
     res.json({
       success: true,
       data: {
@@ -182,19 +182,21 @@ const getPublicPlaylistById = async (req, res) => {
           duration: song.duration,
           artistNames: song.artistNames?.split(',') || [],
           albumNames: song.albumNames?.split(',') || [],
-          coverImage: song.coverImage,
-          audioUrl: song.audioUrl
-        }))
-      }
+          image: song.image,
+          file_song: song.file_song,
+          lyrics: song.lyrics || "", // Thêm thuộc tính lyrics (nếu không có thì mặc định là chuỗi rỗng)
+        })),
+      },
     });
   } catch (error) {
     console.error('Get public playlist error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal Server Error'
+      message: 'Internal Server Error',
     });
   }
 };
+
 
 const getPlaylistById = async (req, res) => {
   try {

@@ -4,55 +4,158 @@ const HistorySongModel = require('../models/historyModel');
 const getAllListeningHistories = async (req, res) => {
   try {
     const listeningHistories = await HistorySongModel.getAllHistory();
-    return res.status(200).json(listeningHistories);
+    return res.status(200).json({
+      success: true,
+      data: listeningHistories
+    });
   } catch (error) {
-    console.error('Error retrieving listening histories:', error);
-    return res.status(500).json({ message: 'Error retrieving listening histories', error: error.message });
+    console.error('Lỗi khi lấy lịch sử nghe:', error);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Lỗi khi lấy lịch sử nghe', 
+      error: error.message 
+    });
   }
 };
+
 
 // Lấy lịch sử nghe theo ID
 const getListeningHistoryById = async (req, res) => {
   try {
     const {id} = req.params;
-    const History = await HistorySongModel.getHistoryById(id);
+    const history = await HistorySongModel.getHistoryById(id);
 
-    if (!History) {
-      return res.status(404).json({ message: 'Listening history not found' });
+    if (!history || history.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Không tìm thấy lịch sử nghe' 
+      });
     }
 
-    res.json({History});
+    res.status(200).json({
+      success: true,
+      data: history
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving listening history', error: error.message });
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi khi lấy lịch sử nghe', 
+      error: error.message 
+    });
   }
 };
 
 const createListeningHistory = async (req, res) => {
   try {
-    const {userID,songID } = req.body;
+    const { userID, songID } = req.body;
 
-    console.log(req.body);
+    // Kiểm tra dữ liệu đầu vào
     if (!userID || !songID) {
-      return res.status(400).json({ message: 'userID, songID are required' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'userID và songID không được để trống' 
+      });
     }
 
-    const checkHistory = await HistorySongModel.getHistoryById(userID)
-    if (checkHistory.songId === songID) {
-      return res.status(400).json({ message: 'History record already exists for this user' });
-    }
     const newHistory = { userID, songID };
-    const historyId = await HistorySongModel.createHistory(newHistory);
-    res.status(200).json({ id: historyId, ...newHistory });
+    const result = await HistorySongModel.createHistory(newHistory);
+    
+    res.status(201).json({ 
+      success: true,
+      message: 'Đã thêm lịch sử nghe nhạc thành công',
+      data: {
+        id: result.insertId,
+        ...newHistory,
+        listeningDate: new Date()
+      }
+    });
 
   } catch (error) {
-    console.error('Error creating listening history:', error);
-    res.status(500).json({ message: 'Error creating listening history', error: error.message });
+    console.error('Lỗi khi tạo lịch sử nghe:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi khi tạo lịch sử nghe', 
+      error: error.message 
+    });
   }
 };
 
+const softDeleteListeningHistory = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: 'ID lịch sử không được để trống'
+            });
+        }
+
+        await HistorySongModel.softDeleteHistory(id);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Đã xóa lịch sử nghe nhạc thành công'
+        });
+
+    } catch (error) {
+        console.error('Lỗi khi xóa lịch sử nghe:', error);
+        
+        if (error.message === 'Không tìm thấy lịch sử nghe hoặc đã bị xóa') {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Lỗi khi xóa lịch sử nghe',
+            error: error.message
+        });
+    }
+};
+
+const softDeleteAllListeningHistory = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'ID người dùng không được để trống'
+            });
+        }
+
+        await HistorySongModel.softDeleteAllHistory(userId);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Đã xóa tất cả lịch sử nghe nhạc thành công'
+        });
+
+    } catch (error) {
+        console.error('Lỗi khi xóa tất cả lịch sử nghe:', error);
+        
+        if (error.message === 'Không tìm thấy lịch sử nghe hoặc đã bị xóa') {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Lỗi khi xóa tất cả lịch sử nghe',
+            error: error.message
+        });
+    }
+};
 
 module.exports = {
   getAllListeningHistories,
   getListeningHistoryById,
   createListeningHistory,
+  softDeleteListeningHistory,
+  softDeleteAllListeningHistory
 };

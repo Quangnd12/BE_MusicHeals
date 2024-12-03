@@ -11,7 +11,7 @@ class FollowModel {
 
       // Kiểm tra xem đã follow chưa
       const [existingFollow] = await connection.execute(
-        'SELECT * FROM artist_follows WHERE userId = ? AND artistId = ?', 
+        'SELECT * FROM artist_follows WHERE userId = ? AND artistId = ?',
         [userId, artistId]
       );
 
@@ -21,7 +21,7 @@ class FollowModel {
 
       // Thêm follow mới
       const [result] = await connection.execute(
-        'INSERT INTO artist_follows (userId, artistId, followedAt) VALUES (?, ?, CURRENT_TIMESTAMP)', 
+        'INSERT INTO artist_follows (userId, artistId, followedAt) VALUES (?, ?, CURRENT_TIMESTAMP)',
         [userId, artistId]
       );
 
@@ -48,7 +48,7 @@ class FollowModel {
 
       // Xóa follow
       await connection.execute(
-        'DELETE FROM artist_follows WHERE userId = ? AND artistId = ?', 
+        'DELETE FROM artist_follows WHERE userId = ? AND artistId = ?',
         [userId, artistId]
       );
 
@@ -64,7 +64,7 @@ class FollowModel {
   // Kiểm tra trạng thái follow
   static async isFollowing(userId, artistId) {
     const [rows] = await db.execute(
-      'SELECT * FROM artist_follows WHERE userId = ? AND artistId = ?', 
+      'SELECT * FROM artist_follows WHERE userId = ? AND artistId = ?',
       [userId, artistId]
     );
     return rows.length > 0;
@@ -73,7 +73,7 @@ class FollowModel {
   // Lấy danh sách nghệ sĩ đang được theo dõi bởi user
   static async getFollowedArtistsByUser(userId, page = 1, limit = 10) {
     const offset = (page - 1) * limit;
-    
+
     const query = `
       SELECT 
         a.id, 
@@ -89,14 +89,18 @@ class FollowModel {
       LIMIT ? OFFSET ?
     `;
 
-    const [rows] = await db.execute(query, [userId, limit, offset]);
+    const [rows] = await db.execute(query, [
+      userId,
+      limit.toString(),   // Chuyển limit sang string
+      offset.toString()   // Chuyển offset sang string
+    ]);
     return rows;
   }
 
   // Đếm số lượng follower của một nghệ sĩ
   static async getArtistFollowerCount(artistId) {
     const [rows] = await db.execute(
-      'SELECT COUNT(*) as followerCount FROM artist_follows WHERE artistId = ?', 
+      'SELECT COUNT(*) as followerCount FROM artist_follows WHERE artistId = ?',
       [artistId]
     );
     return rows[0].followerCount;
@@ -107,9 +111,9 @@ class FollowModel {
     // Ép kiểu chính xác và đảm bảo giá trị dương
     page = Math.max(1, parseInt(page, 10));
     limit = Math.max(1, parseInt(limit, 10));
-    
+
     const offset = (page - 1) * limit;
-    
+
     const query = `
       SELECT 
         a.id, 
@@ -123,10 +127,10 @@ class FollowModel {
       ORDER BY followerCount DESC
       LIMIT ? OFFSET ?
     `;
-  
+
     try {
       const [rows] = await db.execute(query, [
-        limit.toString(), 
+        limit.toString(),
         offset.toString()
       ]);
       return rows;
@@ -138,7 +142,7 @@ class FollowModel {
   // Thống kê follow
   static async getFollowStatistics(userId) {
     const [totalFollowedArtists] = await db.execute(
-      'SELECT COUNT(*) as count FROM artist_follows WHERE userId = ?', 
+      'SELECT COUNT(*) as count FROM artist_follows WHERE userId = ?',
       [userId]
     );
 
@@ -161,6 +165,32 @@ class FollowModel {
       totalFollowedArtists: totalFollowedArtists[0].count,
       topArtists
     };
+  }
+  // Lấy danh sách followers của một nghệ sĩ
+  // Lấy danh sách followers của một nghệ sĩ với thông tin chi tiết nghệ sĩ
+  static async getArtistFollowers(artistId, page = 1, limit = 10) {
+    const offset = (page - 1) * limit;
+
+    const query = `
+    SELECT 
+      u.id as userId, 
+      u.username, 
+      u.avatar as userAvatar,
+      af.followedAt,
+      a.id as artistId,
+      a.name as artistName,
+      a.avatar as artistAvatar,
+      a.biography
+    FROM artist_follows af
+    JOIN users u ON af.userId = u.id
+    JOIN artists a ON af.artistId = a.id
+    WHERE af.artistId = ?
+    ORDER BY af.followedAt DESC
+    LIMIT ? OFFSET ?
+  `;
+
+    const [rows] = await db.execute(query, [artistId, limit.toString(), offset.toString()]);
+    return rows;
   }
 }
 

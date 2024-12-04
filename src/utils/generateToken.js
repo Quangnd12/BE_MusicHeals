@@ -1,22 +1,24 @@
 const jwt = require('jsonwebtoken');
 
-// Hàm tạo token JWT
-const generateToken = (user) => {
-  // Payload chỉ chứa các thông tin cần thiết
-  const payload = {
-    id: user.id,
-    role: user.role,
+const generateToken = (userData) => {
+  const tokenPayload = {
+    id: userData.id,
+    email: userData.email,
+    role: userData.role,
+    artist_id: userData.artist_id
   };
 
-  // Tạo token với thời gian sống là 1 giờ
-  const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: '1d',
-  });
+  const accessToken = jwt.sign(
+    tokenPayload,
+    process.env.JWT_SECRET,
+    { expiresIn: '24h' }
+  );
 
-  // Tạo refresh token với thời gian sống dài hơn, ví dụ 7 ngày
-  const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: '7d',
-  });
+  const refreshToken = jwt.sign(
+    tokenPayload,
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
 
   return { accessToken, refreshToken };
 };

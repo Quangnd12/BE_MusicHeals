@@ -2,13 +2,14 @@ const db = require('../config/db');
 
 class HistorySongModel {
 
-  // Lấy toàn bộ lịch sử nghe nhạc
-  static async getAllHistory() {
-    let query = `
+    // Lấy toàn bộ lịch sử nghe nhạc
+    static async getAllHistory() {
+        let query = `
     SELECT 
+    histories.id,
     users.username,
-    users.id AS userId,
-    songs.id AS songId,
+    users.id AS userID,
+    songs.id AS songID,
     songs.title,
     songs.image,
     songs.file_song,
@@ -44,15 +45,17 @@ LEFT JOIN genres
     ON song_genres.genreID = genres.id
 LEFT JOIN countries 
     ON genres.countryID = countries.id
+WHERE histories.deleted_at IS NULL
 GROUP BY histories.id
     `;
-    const [rows] = await db.execute(query);
-    return rows;
-  }
+        const [rows] = await db.execute(query);
+        return rows;
+    }
 
-  static async getHistoryById(id) {
-    const query = `
+    static async getHistoryById(id) {
+        const query = `
     SELECT 
+    histories.id,
     users.username,
     users.id AS userId,
     songs.id AS songId,
@@ -91,21 +94,67 @@ LEFT JOIN genres
     ON song_genres.genreID = genres.id
 LEFT JOIN countries 
     ON genres.countryID = countries.id
-WHERE histories.userID = ?
+WHERE histories.userID = ? 
+AND histories.deleted_at IS NULL
 GROUP BY  
+histories.id, 
 songs.id, 
 users.id, 
 histories.listeningDate`;
-    const [rows] = await db.execute(query, [id]);
-    return rows[0];
-  }
+        const [rows] = await db.execute(query, [id]);
+        return rows;
+    }
 
-  static async createHistory(historyData) {
-    const { userID, songID } = historyData;
-      const query = "INSERT INTO histories (userID, songID)  VALUES (?, ?)";
-      const [result] = await db.execute(query, [userID, songID]);
-      return result.insertId;
-  }
+    static async createHistory(historyData) {
+        const { userID, songID } = historyData;
+        if (!userID || !songID) {
+          throw new Error('userID và songID không được để trống');
+        }
+      
+        const query = "INSERT INTO histories (userID, songID, listeningDate) VALUES (?, ?, NOW())";
+        const [result] = await db.execute(query, [userID, songID]);
+        return result;
+      }
+
+    static async softDeleteHistory(historyId) {
+        if (!historyId) {
+            throw new Error('ID lịch sử không được để trống');
+        }
+
+        const query = `
+            UPDATE histories 
+            SET deleted_at = NOW() 
+            WHERE id = ? AND deleted_at IS NULL
+        `;
+        
+        const [result] = await db.execute(query, [historyId]);
+        
+        if (result.affectedRows === 0) {
+            throw new Error('Không tìm thấy lịch sử nghe hoặc đã bị xóa');
+        }
+        
+        return result;
+    }
+
+    static async softDeleteAllHistory(userId) {
+        if (!userId) {
+            throw new Error('ID người dùng không được để trống');
+        }
+
+        const query = `
+            UPDATE histories 
+            SET deleted_at = NOW() 
+            WHERE userID = ? AND deleted_at IS NULL
+        `;
+        
+        const [result] = await db.execute(query, [userId]);
+        
+        if (result.affectedRows === 0) {
+            throw new Error('Không tìm thấy lịch sử nghe hoặc đã bị xóa');
+        }
+        
+        return result;
+    }
 }
 
 module.exports = HistorySongModel;

@@ -25,9 +25,39 @@ class PaymentModel {
   }
 
   static async getPaymentByUser(id) {
-    const query = `SELECT users.username, users.email,users.id, payments.*  FROM payments JOIN users ON payments.user_id=users.id WHERE payments.user_id = ?`;
+    const query = `SELECT users.username, users.email,users.id, payments.* ,payments.id as payment_id  FROM payments JOIN users ON payments.user_id=users.id WHERE payments.user_id = ?`;
     const [rows] = await db.execute(query, [id]);
     return rows[0];
+  }
+
+  static async getAllPayment(pagination = false, page, limit, searchName) {
+    let query = `SELECT users.username, users.email, users.id, payments.* ,payments.id as payment_id FROM payments JOIN users ON payments.user_id = users.id`;
+    const conditions = [];
+
+    if (searchName) {
+      conditions.push(`users.username LIKE ?`); 
+    }
+  
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+  
+    if (pagination) {
+      const offset = (page - 1) * limit;
+      query += ` LIMIT ${limit} OFFSET ${offset}`;
+    }
+  
+    const params = [];
+    if (searchName) params.push(`%${searchName}%`); 
+    const [rows] = await db.execute(query, params);
+    return rows;
+  }
+  
+
+  static async getCount() {
+    const query = 'SELECT COUNT(*) as count FROM payments';
+    const [rows] = await db.execute(query);
+    return rows[0].count;
   }
 
   static async DeletePayment(id) {

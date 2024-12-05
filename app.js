@@ -31,6 +31,7 @@ const { authMiddleware } = require('./src/middlewares/authMiddleware');
 const artistAuthRoutes = require('./src/routes/artistAuthRoutes');
 const artistSongRoutes = require('./src/routes/artistSongRoutes');
 
+const searchRoutes = require('./src/routes/searchRoutes');
 const app = express();
 
 app.use(bodyParser.json());
@@ -81,6 +82,7 @@ app.use('/api/events', eventRoutes);
 app.use('/api/mixes', mixRoutes);
 app.use('/api/histories', historyRoutes);
 app.use('/api/payment', payRoutes);
+app.use('/api/search', searchRoutes);
 // Xử lý lỗi 404 (Not Found)
 app.use((req, res, next) => {
   res.status(404).json({

@@ -75,58 +75,58 @@ class SongModel {
 
     const [rows] = await db.execute(query, params);
     return rows;
-}
+  }
 
-static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration = 0, minListensCount = 0, maxListensCount = 0) {
-  let query = `
+  static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration = 0, minListensCount = 0, maxListensCount = 0) {
+    let query = `
       SELECT COUNT(DISTINCT songs.id) as count
       FROM songs
       LEFT JOIN song_genres ON songs.id = song_genres.songID
   `;
 
-  const conditions = [];
-  const params = [];
+    const conditions = [];
+    const params = [];
 
-  // Điều kiện lọc theo tên
-  if (searchName) {
+    // Điều kiện lọc theo tên
+    if (searchName) {
       conditions.push(`songs.title LIKE ?`);
       params.push(`%${searchName}%`);
-  }
+    }
 
-  // Điều kiện lọc theo thể loại
-  if (genres.length > 0) {
+    // Điều kiện lọc theo thể loại
+    if (genres.length > 0) {
       const genrePlaceholders = genres.map(() => '?').join(', ');
       conditions.push(`song_genres.genreID IN (${genrePlaceholders})`);
       params.push(...genres);
-  }
+    }
 
-  // Điều kiện lọc theo duration
-  if (minDuration > 0) {
+    // Điều kiện lọc theo duration
+    if (minDuration > 0) {
       conditions.push(`songs.duration >= ?`);
       params.push(minDuration);
-  }
-  if (maxDuration > 0) {
+    }
+    if (maxDuration > 0) {
       conditions.push(`songs.duration <= ?`);
       params.push(maxDuration);
-  }
+    }
 
-  // Điều kiện lọc theo listen count
-  if (minListensCount > 0) {
+    // Điều kiện lọc theo listen count
+    if (minListensCount > 0) {
       conditions.push(`songs.listens_count >= ?`);
       params.push(minListensCount);
-  }
-  if (maxListensCount > 0) {
+    }
+    if (maxListensCount > 0) {
       conditions.push(`songs.listens_count <= ?`);
       params.push(maxListensCount);
-  }
+    }
 
-  if (conditions.length > 0) {
+    if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;
-  }
+    }
 
-  const [rows] = await db.execute(query, params);
-  return rows[0].count;
-}
+    const [rows] = await db.execute(query, params);
+    return rows[0].count;
+  }
 
 
 
@@ -187,15 +187,15 @@ static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration 
       duration,
       releaseDate,
       listens_count = 0,
-      is_premium=0
+      is_premium = 0
 
     } = songData;
 
-    const lyrics = await lyricsFinder(artistID, title) || "Not Found!";  
+    const lyrics = await lyricsFinder(artistID, title) || "Not Found!";
     const cleanLyrics = lyrics ? leoProfanity.clean(lyrics) : null;
     const is_explicit = lyrics && leoProfanity.check(lyrics) ? 1 : 0;
     const query = 'INSERT INTO songs (title, image, file_song, lyrics, duration, listens_count, releaseDate, is_explicit,is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
-    const [result] = await db.execute(query, [title, image, file_song, cleanLyrics, duration, listens_count, releaseDate, is_explicit,is_premium]);
+    const [result] = await db.execute(query, [title, image, file_song, cleanLyrics, duration, listens_count, releaseDate, is_explicit, is_premium]);
     const songId = result.insertId;
 
     if (artistID && artistID.length > 0) {
@@ -311,6 +311,58 @@ static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration 
     await db.execute('DELETE FROM songs WHERE id = ?', [id]);
   }
 
+  static async searchSongs(searchTerm, page = 1, limit = 10) {
+    try {
+      const offset = (page - 1) * limit;
+      const searchPattern = `${searchTerm}%`;
+      
+      const query = `
+        WITH RankedResults AS (
+          SELECT DISTINCT
+            s.*,
+            GROUP_CONCAT(DISTINCT a.name) as artists,
+            GROUP_CONCAT(DISTINCT g.name) as genres,
+            GROUP_CONCAT(DISTINCT al.title) as albums,
+            MIN(CASE 
+              WHEN LOWER(s.title) LIKE LOWER(${db.escape(searchPattern)}) THEN 0
+              WHEN LOWER(a.name) LIKE LOWER(${db.escape(searchPattern)}) THEN 1
+              ELSE 2
+            END) as search_rank
+          FROM songs s
+          LEFT JOIN song_artists sa ON s.id = sa.songID 
+          LEFT JOIN artists a ON sa.artistID = a.id
+          LEFT JOIN song_genres sg ON s.id = sg.songID
+          LEFT JOIN genres g ON sg.genreID = g.id
+          LEFT JOIN song_albums sal ON s.id = sal.songID
+          LEFT JOIN albums al ON sal.albumID = al.id
+          WHERE 
+            LOWER(s.title) LIKE LOWER(${db.escape(searchPattern)}) OR
+            LOWER(a.name) LIKE LOWER(${db.escape(searchPattern)})
+          GROUP BY s.id
+        )
+        SELECT * FROM RankedResults
+        ORDER BY search_rank ASC, listens_count DESC
+        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      `;
+
+      const [rows] = await db.execute(query);
+      return rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        image: row.image,
+        file_song: row.file_song,
+        duration: row.duration,
+        listens_count: row.listens_count,
+        artists: row.artists ? row.artists.split(',') : [],
+        genres: row.genres ? row.genres.split(',') : [],
+        albums: row.albums ? row.albums.split(',') : []
+      }));
+
+    } catch (error) {
+      console.error("Lỗi khi tìm kiếm bài hát:", error);
+      throw error;
+    }
+  }
 
 }
 

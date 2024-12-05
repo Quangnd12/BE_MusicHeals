@@ -40,7 +40,8 @@ class ArtistModel {
         songs.duration AS songDuration,
         songs.file_song AS songFile,
         songs.image AS songImage,
-        songs.lyrics AS songLyrics
+        songs.lyrics AS songLyrics,
+        songs.releaseDate AS releaseDate
       FROM artists
       LEFT JOIN song_artists ON artists.id = song_artists.artistId
       LEFT JOIN songs ON song_artists.songId = songs.id
@@ -70,7 +71,8 @@ class ArtistModel {
                 duration: row.songDuration,
                 file: row.songFile,
                 image: row.songImage,
-                lyrics: row.songLyrics
+                lyrics: row.songLyrics,
+                releaseDate: row.releaseDate
             });
         }
     });

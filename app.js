@@ -70,7 +70,7 @@ app.use("/api", followRoutes);
 app.use("/api/genres",genreRoutes);
 app.use("/api/albums", albumRoutes);
 app.use('/api/favorites', favoriteRoutes);
-app.use("/api/songs",songRoutes);
+app.use("/api/songs", songRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use("/api/countries", countryRoutes);
 app.use('/api/playlists', playlistRoutes);

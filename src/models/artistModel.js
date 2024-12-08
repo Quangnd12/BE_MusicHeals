@@ -17,9 +17,9 @@ class ArtistModel {
 
     const [rows] = await db.execute(query);
     return rows;
-}
+  }
 
-  
+
 
   static async getArtistCount() {
     const query = 'SELECT COUNT(*) as count FROM artists';
@@ -41,44 +41,56 @@ class ArtistModel {
         songs.file_song AS songFile,
         songs.image AS songImage,
         songs.lyrics AS songLyrics,
-        songs.releaseDate AS releaseDate
+        songs.releaseDate AS songReleaseDate,
+        songs.is_premium AS songIsPremium,
+        songs.listens_count AS songListensCount,
+        songs.is_explicit AS songIsExplicit,
+        albums.title AS albumTitle,
+        albums.id AS albumId
       FROM artists
       LEFT JOIN song_artists ON artists.id = song_artists.artistId
       LEFT JOIN songs ON song_artists.songId = songs.id
+      LEFT JOIN song_albums ON songs.id = song_albums.songID
+      LEFT JOIN albums ON song_albums.albumID = albums.id
       WHERE artists.id = ?
     `;
 
     const [rows] = await db.execute(query, [id]);
 
     if (rows.length === 0) {
-        return null; // Không tìm thấy nghệ sĩ
+      return null; // Không tìm thấy nghệ sĩ
     }
 
     const artist = {
-        id: rows[0].artistId,
-        name: rows[0].artistName,
-        avatar: rows[0].artistAvatar,
-        role: rows[0].artistRole,
-        biography: rows[0].artistBiography,
-        songs: []
+      id: rows[0].artistId,
+      name: rows[0].artistName,
+      avatar: rows[0].artistAvatar,
+      role: rows[0].artistRole,
+      biography: rows[0].artistBiography,
+      songs: []
     };
 
     rows.forEach(row => {
-        if (row.songId) {
-            artist.songs.push({
-                id: row.songId,
-                title: row.songTitle,
-                duration: row.songDuration,
-                file: row.songFile,
-                image: row.songImage,
-                lyrics: row.songLyrics,
-                releaseDate: row.releaseDate
-            });
-        }
+      if (row.songId) {
+        artist.songs.push({
+          id: row.songId,
+          title: row.songTitle,
+          duration: row.songDuration,
+          file: row.songFile,
+          image: row.songImage,
+          lyrics: row.songLyrics,
+          releaseDate: row.songReleaseDate,
+          is_premium: row.songIsPremium,
+          listens_count: row.songListensCount,
+          is_explicit: row.songIsExplicit,
+          albumTitle: row.albumTitle,
+          albumId: row.albumId
+        });
+      }
     });
 
     return artist;
-}
+  }
 
 
   static async checkArtistExistsByName(name) {

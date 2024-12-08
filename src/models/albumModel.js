@@ -74,6 +74,7 @@ class AlbumModel {
     const query = `
       SELECT 
         a.*,
+        art.id as artistId,
         art.name as artistName,
         art.avatar as artistAvatar, -- Thêm cột avatar
         s.id as songId,
@@ -82,6 +83,10 @@ class AlbumModel {
         s.file_song as songFile,
         s.image as songImage,
         s.lyrics as songLyrics,
+        s.releaseDate as songReleaseDate,
+        s.is_premium as songIsPremium,
+        s.listens_count as songListensCount,
+        s.is_explicit as songIsExplicit,
         GROUP_CONCAT(DISTINCT sa.artistId) as songArtistIds,
         GROUP_CONCAT(DISTINCT art2.name) as songArtistNames
       FROM albums a

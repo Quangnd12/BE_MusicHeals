@@ -62,6 +62,7 @@ class SongModel {
     }
 
     query += ` GROUP BY songs.id`;
+    query += ` ORDER BY songs.releaseDate DESC`;
 
     if (pagination) {
       const offset = (page - 1) * limit;
@@ -159,7 +160,8 @@ static async getSongCount(searchName, genres = [], minDuration = 0, maxDuration 
   LEFT JOIN genres ON song_genres.genreID = genres.id
   LEFT JOIN countries ON genres.countryID = countries.id
   WHERE songs.id = ?
-  GROUP BY songs.id`;
+  GROUP BY songs.id
+  ORDER BY songs.releaseDate DESC`;
     const [rows] = await db.execute(query, [id]);
     return rows[0];
   }

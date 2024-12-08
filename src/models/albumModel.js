@@ -186,6 +186,47 @@ class AlbumModel {
     return rows;
   }
 
+  static async searchAlbums(searchTerm, page = 1, limit = 10) {
+    try {
+      const offset = (page - 1) * limit;
+      const searchPattern = `%${searchTerm}%`;
+      
+      const query = `
+        SELECT 
+          a.*,
+          GROUP_CONCAT(DISTINCT ar.name) as artistNames,
+          GROUP_CONCAT(DISTINCT ar.avatar) as artistAvatars,
+          COUNT(DISTINCT s.id) as totalSongs
+        FROM albums a
+        LEFT JOIN album_artists aa ON a.id = aa.albumID
+        LEFT JOIN artists ar ON aa.artistID = ar.id
+        LEFT JOIN song_albums sa ON a.id = sa.albumID
+        LEFT JOIN songs s ON sa.songID = s.id
+        WHERE LOWER(a.title) LIKE LOWER(${db.escape(searchPattern)})
+        GROUP BY a.id
+        ORDER BY a.releaseDate DESC
+        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      `;
+
+      const [rows] = await db.execute(query);
+
+      return rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        image: row.image,
+        releaseDate: row.releaseDate,
+        totalSongs: row.totalSongs,
+        artists: {
+          names: row.artistNames ? row.artistNames.split(',') : [],
+          avatars: row.artistAvatars ? row.artistAvatars.split(',') : []
+        }
+      }));
+
+    } catch (error) {
+      console.error("Lỗi khi tìm kiếm album:", error);
+      throw error;
+    }
+  }
 
 }
 

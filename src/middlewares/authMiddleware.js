@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const UserModel = require('../models/userModel');
+const ArtistAuthModel = require('../models/artistAuthModel');
 
 const authMiddleware = async (req, res, next) => {
     try {
@@ -67,6 +68,52 @@ const authMiddleware = async (req, res, next) => {
     }
 };
 
+const verifyArtistToken = async (req, res, next) => {
+  try {
+    // Lấy token từ header hoặc cookie
+    let token;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies && req.cookies.artist_token) {
+      const tokenData = decodeURIComponent(req.cookies.artist_token);
+      const { accessToken } = JSON.parse(tokenData);
+      token = accessToken;
+    }
+
+    if (!token) {
+      return res.status(401).json({ message: 'Không tìm thấy token xác thực' });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Kiểm tra xem nghệ sĩ có tồn tại không
+    const artist = await ArtistAuthModel.getArtistById(decoded.artist_id);
+    if (!artist) {
+      return res.status(401).json({ message: 'Không tìm thấy nghệ sĩ' });
+    }
+
+    // Thêm thông tin nghệ sĩ vào request
+    req.artist = {
+      id: decoded.id,
+      email: decoded.email,
+      artist_id: decoded.artist_id,
+      role: decoded.role
+    };
+
+    next();
+  } catch (error) {
+    console.error('Lỗi xác thực:', error);
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Token không hợp lệ' });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token đã hết hạn' });
+    }
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 // Helper function để trích xuất token từ header hoặc cookie
 const extractToken = (req) => {
     const authHeader = req.headers.authorization;
@@ -79,5 +126,6 @@ const extractToken = (req) => {
 };
 
 module.exports = {
-    authMiddleware
+    authMiddleware,
+    verifyArtistToken
 };

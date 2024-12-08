@@ -1,3 +1,4 @@
+const multer = require('multer');
 const { bucket } = require('../config/firebase');
 const { format } = require('util');
 
@@ -14,9 +15,34 @@ const FOLDERS = [
   'countries/images'
 ];
 
+// Thêm cấu hình multer
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_AUDIO_SIZE_MB * 1024 * 1024 // Giới hạn kích thước file lớn nhất
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === 'image') {
+      if (VALID_IMAGE_TYPES.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid image format. Only JPEG, PNG, and GIF are allowed.'));
+      }
+    } else if (file.fieldname === 'file_song') {
+      if (VALID_AUDIO_TYPES.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid audio format. Only MP3 and WAV are allowed.'));
+      }
+    } else {
+      cb(new Error('Unexpected field'));
+    }
+  }
+});
+
 const checkFileExists = async (fileName, folder) => {
   const [files] = await bucket.getFiles({ directory: folder });
-  return files.some(file => file.name === fileName); // Kiểm tra xem tệp có tồn tại dựa trên tên
+  return files.some(file => file.name === fileName);
 };
 
 const uploadToStorage = async (file, folder) => {
@@ -37,16 +63,13 @@ const uploadToStorage = async (file, folder) => {
     }
   }
 
-  // Tên tệp sẽ là tên gốc của tệp
   const fileName = `${folder}/${file.originalname}`;
   const fileExists = await checkFileExists(fileName, folder);
 
-  // Nếu tệp đã tồn tại, trả về URL của tệp đã có
   if (fileExists) {
     return `https://storage.googleapis.com/${bucket.name}/${fileName}`;
   }
 
-  // Nếu tệp không tồn tại, tiến hành tải lên
   const fileBlob = bucket.file(fileName);
 
   return new Promise((resolve, reject) => {
@@ -69,4 +92,7 @@ const uploadToStorage = async (file, folder) => {
   });
 };
 
-module.exports = { uploadToStorage };
+module.exports = { 
+  upload,  // Export multer upload
+  uploadToStorage 
+};

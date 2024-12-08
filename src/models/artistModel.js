@@ -128,6 +128,60 @@ class ArtistModel {
     const [rows] = await db.execute(query, [searchName]);
     return rows;
   }
+
+  static async searchArtists(searchTerm, page = 1, limit = 10) {
+    try {
+      const offset = (page - 1) * limit;
+      const searchPattern = `${searchTerm}%`;
+      
+      const query = `
+        SELECT 
+          a.*,
+          COUNT(DISTINCT sa.songID) as totalSongs,
+          COUNT(DISTINCT aa.albumID) as totalAlbums,
+          COUNT(DISTINCT af.userId) as totalFollowers
+        FROM artists a
+        LEFT JOIN song_artists sa ON a.id = sa.artistID
+        LEFT JOIN album_artists aa ON a.id = aa.artistID
+        LEFT JOIN artist_follows af ON a.id = af.artistId
+        WHERE LOWER(a.name) LIKE LOWER(${db.escape(searchPattern)})
+        GROUP BY a.id
+        ORDER BY totalFollowers DESC, totalSongs DESC
+        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      `;
+
+      const [rows] = await db.execute(query);
+      return rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        avatar: row.avatar,
+        totalSongs: row.totalSongs,
+        totalAlbums: row.totalAlbums,
+        totalFollowers: row.totalFollowers
+      }));
+
+    } catch (error) {
+      console.error("Lỗi khi tìm kiếm nghệ sĩ:", error);
+      throw error;
+    }
+  }
+
+  static async getArtistCount(searchTerm) {
+    try {
+      const searchPattern = `${searchTerm}%`;
+      const query = `
+        SELECT COUNT(DISTINCT id) as count 
+        FROM artists 
+        WHERE LOWER(name) LIKE LOWER(${db.escape(searchPattern)})
+      `;
+      
+      const [rows] = await db.execute(query);
+      return rows[0].count;
+    } catch (error) {
+      console.error("Lỗi khi đếm số lượng nghệ sĩ:", error);
+      throw error;
+    }
+  }
 }
 
 module.exports = ArtistModel;

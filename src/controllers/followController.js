@@ -268,35 +268,38 @@ class FollowController {
   async getUserFollowedArtists(req, res) {
     try {
       const userId = req.user.id;
-      // Kiểm tra và ép kiểu an toàn
       const page = Math.max(1, parseInt(req.query.page, 10) || 1);
       const limit = Math.max(1, parseInt(req.query.limit, 10) || 10);
-
-      // Lấy danh sách nghệ sĩ đang được theo dõi
       const followedArtists = await FollowModel.getFollowedArtistsByUser(
         userId,
         page,
         limit
       );
-
-      // Lấy tổng số nghệ sĩ được follow
       const [totalResult] = await db.execute(
         'SELECT COUNT(*) as total FROM artist_follows WHERE userId = ?',
         [userId]
       );
       const total = totalResult[0].total;
-
-      res.status(200).json({
-        success: true,
-        data: {
-          artists: followedArtists.map(artist => ({
+      const artistsWithSongs = await Promise.all(
+        followedArtists.map(async (artist) => {
+          const artistDetails = await ArtistModel.getArtistById(artist.id);
+          return {
             id: artist.id,
             name: artist.name,
             avatar: artist.avatar,
             biography: artist.biography,
             followedAt: artist.followedAt,
-            followerCount: artist.followerCount
-          })),
+            followerCount: artist.followerCount,
+            songs: artistDetails?.songs || [] 
+            
+          };
+        })
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          artists: artistsWithSongs,
           pagination: {
             page,
             limit,

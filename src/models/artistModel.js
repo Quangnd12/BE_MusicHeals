@@ -3,7 +3,8 @@ const db = require('../config/db');
 class ArtistModel {
   static async getAllArtist(page, limit) {
     const offset = (page - 1) * limit;
-
+    
+    // Query lấy dữ liệu có phân trang
     const query = `
       SELECT 
         artists.id AS id,
@@ -14,9 +15,17 @@ class ArtistModel {
       FROM artists
       LIMIT ${limit} OFFSET ${offset}
     `;
-
+    
+    // Query đếm tổng số bản ghi
+    const countQuery = `SELECT COUNT(*) as total FROM artists`;
+    
     const [rows] = await db.execute(query);
-    return rows;
+    const [countResult] = await db.execute(countQuery);
+    
+    return {
+      artists: rows,
+      total: countResult[0].total
+    };
   }
 
 

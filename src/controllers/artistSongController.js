@@ -101,9 +101,6 @@ const ArtistSongController = {
   async getArtistSongs(req, res) {
     try {
       const artist_id = req.artist?.artist_id;
-      const status = req.query.status || null;
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 10;
       
       if (!artist_id) {
         return res.status(401).json({ 
@@ -111,19 +108,21 @@ const ArtistSongController = {
         });
       }
 
-      const result = await ArtistSongModel.getSongsByArtistId(
-        parseInt(artist_id),
-        status,
-        page,
-        limit
-      );
+      // Lấy tham số pagination từ query string và đảm bảo giá trị hợp lệ
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.max(1, parseInt(req.query.limit) || 10);
+
+      const result = await ArtistSongModel.getSongsByArtistId(artist_id, page, limit);
       
-      res.status(200).json(result);
+      res.status(200).json({
+        message: "Lấy danh sách bài hát thành công",
+        ...result
+      });
 
     } catch (error) {
       console.error("Lỗi khi lấy danh sách bài hát:", error);
       res.status(500).json({
-        message: "Lỗi khi lấy danh sách bài hát",
+        message: "Lỗi server",
         error: error.message
       });
     }

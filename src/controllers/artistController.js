@@ -5,28 +5,17 @@ const getAllArtists = async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
 
-  if ((page && page < 1) || (limit && limit < 1)) {
-    return res.status(400).json({ message: 'Page and limit must be greater than 0.' });
-  }
-
   try {
-    let artists;
-
-    if (!page || !limit) {
-      artists = await ArtistModel.getAllArtist();
-      return res.status(200).json({ artists });
-    }
-
-    artists = await ArtistModel.getAllArtist(page, limit);
-    const totalCount = await ArtistModel.getArtistCount();
+    const result = await ArtistModel.getAllArtist(page, limit);
+    const totalCount = result.total;
     const totalPages = Math.ceil(totalCount / limit);
 
     return res.status(200).json({
-      artists,
-      totalPages,
-      totalCount,
+      artists: result.artists,
+      totalPages: totalPages,
+      totalCount: totalCount,
       currentPage: page,
-      limitPerPage: limit,
+      limitPerPage: limit
     });
   } catch (error) {
     console.error(error);

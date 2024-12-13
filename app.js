@@ -30,6 +30,7 @@ const payRoutes = require("./src/routes/payRoutes");
 const { authMiddleware } = require('./src/middlewares/authMiddleware');
 const artistAuthRoutes = require('./src/routes/artistAuthRoutes');
 const artistSongRoutes = require('./src/routes/artistSongRoutes');
+const artistAlbumRoutes = require('./src/routes/artistAlbumRoutes');
 
 const searchRoutes = require('./src/routes/searchRoutes');
 const app = express();
@@ -65,6 +66,7 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/auth", authRoutes);
 app.use('/api/artist', artistSongRoutes);
 app.use('/api/artist/auth', artistAuthRoutes);
+app.use('/api/artist/albums', artistAlbumRoutes);
 app.use("/api/artists", artistRoutes);
 app.use("/api", followRoutes);
 app.use("/api/genres",genreRoutes);

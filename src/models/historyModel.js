@@ -155,6 +155,20 @@ histories.listeningDate`;
         
         return result;
     }
+
+    static async checkExistingHistory(userID, songID) {
+        const query = `
+            SELECT id 
+            FROM histories 
+            WHERE userID = ? 
+            AND songID = ? 
+            AND deleted_at IS NULL
+            LIMIT 1
+        `;
+        
+        const [rows] = await db.execute(query, [userID, songID]);
+        return rows.length > 0;
+    }
 }
 
 module.exports = HistorySongModel;

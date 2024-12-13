@@ -57,6 +57,15 @@ const createListeningHistory = async (req, res) => {
       });
     }
 
+    // Kiểm tra xem lịch sử đã tồn tại chưa
+    const existingHistory = await HistorySongModel.checkExistingHistory(userID, songID);
+    if (existingHistory) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lịch sử nghe nhạc này đã tồn tại'
+      });
+    }
+
     const newHistory = { userID, songID };
     const result = await HistorySongModel.createHistory(newHistory);
     

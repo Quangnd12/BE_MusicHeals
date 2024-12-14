@@ -353,8 +353,12 @@ class SongModel {
         title: row.title,
         image: row.image,
         file_song: row.file_song,
+        lyrics: row.lyrics,
         duration: row.duration,
         listens_count: row.listens_count,
+        releaseDate: row.releaseDate,
+        is_explicit: row.is_explicit,
+        is_premium: row.is_premium,
         artists: row.artists ? row.artists.split(',') : [],
         genres: row.genres ? row.genres.split(',') : [],
         albums: row.albums ? row.albums.split(',') : []

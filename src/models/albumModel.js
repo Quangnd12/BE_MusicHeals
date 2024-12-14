@@ -118,6 +118,10 @@ class AlbumModel {
         file: row.songFile,
         image: row.songImage,
         lyrics: row.songLyrics,
+        releaseDate: row.songReleaseDate,
+        is_premium: row.songIsPremium,
+        listens_count: row.songListensCount,
+        is_explicit: row.songIsExplicit,
         artistIds: row.songArtistIds ? row.songArtistIds.split(',').map(Number) : [],
         artistNames: row.songArtistNames ? row.songArtistNames.split(',') : []
       })) : []

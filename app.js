@@ -31,6 +31,7 @@ const { authMiddleware } = require('./src/middlewares/authMiddleware');
 const artistAuthRoutes = require('./src/routes/artistAuthRoutes');
 const artistSongRoutes = require('./src/routes/artistSongRoutes');
 const artistAlbumRoutes = require('./src/routes/artistAlbumRoutes');
+const statisticaRoutes = require('./src/routes/statisticaRoutes');
 
 const searchRoutes = require('./src/routes/searchRoutes');
 const app = express();
@@ -72,7 +73,7 @@ app.use("/api", followRoutes);
 app.use("/api/genres",genreRoutes);
 app.use("/api/albums", albumRoutes);
 app.use('/api/favorites', favoriteRoutes);
-app.use("/api/songs", songRoutes);
+app.use("/api/songs",authMiddleware, songRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use("/api/countries", countryRoutes);
 app.use('/api/playlists', playlistRoutes);
@@ -80,7 +81,7 @@ app.use('/api/song_artist', songArtistRoutes);
 app.use('/api/ratings', ratingRoutes);
 app.use('/api/follows', followRoutes);
 app.use('/api/events', eventRoutes);
-
+app.use('/api/statistica', statisticaRoutes);
 app.use('/api/mixes', mixRoutes);
 app.use('/api/histories', historyRoutes);
 app.use('/api/payment', payRoutes);

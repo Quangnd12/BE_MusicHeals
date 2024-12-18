@@ -164,25 +164,22 @@ const updateExpiringPayments = async () => {
       }
       console.log("Notifications have been sent to users with expiring subscriptions.");
     }
-    const expiredPayments = await PaymentModel.UpdatePayment();
 
-    if (expiredPayments.length > 0) {
+    const result = await PaymentModel.UpdatePayment();
+    if (result.affectedRows > 0) {
+      console.log(`${result.affectedRows} payments have been updated to expired status.`);
+      
+      const expiredPayments = await PaymentModel.getAllPayment(false, null, null, '');
       for (const payment of expiredPayments) {
-        const user = await PaymentModel.getPaymentByUser(payment.user_id);
-
-        if (user && user.email) {
-          await sendNotification(user.email);
+        if (payment.status === 0) {
+          await sendCancelPayment(payment.email);
         }
-        await PaymentModel.DeletePayment(payment.user_id);
-        await sendCancelPayment(user.email);
-        console.log(`Payment record for user ${payment.user_id} has been deleted.`);
       }
-      console.log("Expired payments have been removed successfully.");
     } else {
-      console.log("No expired payments to delete.");
+      console.log("No payments needed to be updated.");
     }
   } catch (error) {
-    console.error("Error checking or removing expired payments:", error);
+    console.error("Error checking or updating expired payments:", error);
   }
 };
 

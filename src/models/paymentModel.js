@@ -13,9 +13,9 @@ class PaymentModel {
   }
 
   static async UpdatePayment() {
-    const query = `SELECT user_id FROM payments WHERE expiry_date < NOW()`;
-    const [rows] = await db.execute(query);
-    return rows;
+    const query = `UPDATE payments SET status = 0 WHERE expiry_date < NOW() AND status = 1`;
+    const [result] = await db.execute(query);
+    return result;
   }
 
   static async UpdateIsNotified(id) {
@@ -60,13 +60,8 @@ class PaymentModel {
     return rows[0].count;
   }
 
-  static async DeletePayment(id) {
-    const query = `DELETE FROM payments WHERE user_id = ?`;
-    await db.execute(query, [id]);
-  }
-
-    static async Renew(id,data) {
-      const {is_notified, subscription_date, expiry_date} = data;
+  static async Renew(id,data) {
+    const {is_notified, subscription_date, expiry_date} = data;
     const query = `UPDATE payments SET 	is_notified = ? , subscription_date = ?, expiry_date = ? WHERE user_id = ?
     `;
     const [rows] = await db.execute(query, [is_notified, subscription_date,expiry_date, id]);

@@ -13,13 +13,13 @@ class PaymentModel {
   }
 
   static async UpdatePayment() {
-    const query = `UPDATE payments SET status = 0 WHERE expiry_date < NOW() AND status = 1`;
+    const query = `UPDATE payments SET status = 0 , is_notified = 0  WHERE expiry_date < NOW() AND status = 1`;
     const [result] = await db.execute(query);
     return result;
   }
 
   static async UpdateIsNotified(id) {
-    const query = `UPDATE  payments SET is_notified = 1 WHERE user_id = ?`;
+    const query = `UPDATE payments SET is_notified = 1 WHERE user_id = ?`;
     const [rows] = await db.execute(query, [id]);
     return rows;
   }
@@ -77,6 +77,11 @@ class PaymentModel {
     return rows;
   }
 
+  static async deletePaymentByUserId(userId) {
+    const query = 'DELETE FROM payments WHERE user_id = ?';
+    const [result] = await db.execute(query, [userId]);
+    return result;
+  }
 
 }
 

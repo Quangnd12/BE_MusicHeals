@@ -84,10 +84,17 @@ const addPayments = async (req, res) => {
       expiry_date,
       is_notified: 0
     };
+
     const checkUser = await PaymentModel.getPaymentByUser(user_id);
     if (checkUser) {
-      return res.status(400).json({ message: 'Payment record already exists for this user' });
+      if (checkUser.status === 1) {
+        return res.status(400).json({ message: 'Payment record already exists for this user' });
+      } else {
+        // Xóa payment cũ nếu status = 0
+        await PaymentModel.deletePaymentByUserId(user_id);
+      }
     }
+
     const PayId = await PaymentModel.addPayment(paymentData);
     await sendBill(email, paymentData.amount, paymentData.subscription_date, paymentData.expiry_date);
     console.log('Bill sent successfully.');
@@ -156,10 +163,10 @@ const updateExpiringPayments = async () => {
         const user = await PaymentModel.getPaymentByUser(payment.user_id);
 
         if (user && user.email) {
-          if (user.is_notified === 0) {
+          if (user.is_notified === 0 && user.status === 1) {
             await sendNotification(user.email);
             await PaymentModel.UpdateIsNotified(payment.user_id);
-          }
+          } 
         }
       }
       console.log("Notifications have been sent to users with expiring subscriptions.");
@@ -261,7 +268,7 @@ const sendCancelPayment = async (userEmail) => {
               Nếu bạn thay đổi quyết định và muốn tiếp tục sử dụng gói Premium, bạn có thể đăng ký lại bất cứ lúc nào bằng cách nhấn vào nút bên dưới:
             </p>
             <div style="text-align: center; margin-top: 20px;">
-              <a href="${process.env.CLIENT_URL}/login" style="text-decoration: none; background-color: #1a73e8; color: white; padding: 12px 25px; border-radius: 4px; font-size: 16px;">
+              <a href="${process.env.CLIENT_URL}/upgrade" style="text-decoration: none; background-color: #1a73e8; color: white; padding: 12px 25px; border-radius: 4px; font-size: 16px;">
                 Đăng Ký Lại Premium
               </a>
             </div>
